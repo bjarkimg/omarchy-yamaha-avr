@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.bjarkimg.yamaha-avr",
   "name": "Yamaha AVR",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Bjarki Már",
   "license": "MIT",
   "description": "Bar remote for Yamaha network AV receivers over YNCA. Power, volume, HDMI, Straight / 7ch Stereo / Pure Direct, and a draggable 7.1 seat map. Tested on RX-V677.",
