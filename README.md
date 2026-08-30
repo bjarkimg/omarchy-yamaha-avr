@@ -7,6 +7,8 @@ uses on 2010–2014 receivers.
 This is **not** MusicCast. If `http://RECEIVER/YamahaRemoteControl/desc.xml`
 loads, this plugin can talk to the box.
 
+![Yamaha AVR bar remote on RX-V677](preview.png)
+
 ## Supported devices
 
 Anything with the **Yamaha Network Control** HTTP API
