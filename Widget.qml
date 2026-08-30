@@ -417,9 +417,9 @@ BarWidget {
                 ListElement { sx: 0.82; sy: 0.22; tag: "FR" }
                 ListElement { sx: 0.12; sy: 0.52; tag: "SL" }
                 ListElement { sx: 0.88; sy: 0.52; tag: "SR" }
-                ListElement { sx: 0.22; sy: 0.84; tag: "SBL" }
-                ListElement { sx: 0.78; sy: 0.84; tag: "SBR" }
-                ListElement { sx: 0.50; sy: 0.90; tag: "SW" }
+                ListElement { sx: 0.22; sy: 0.82; tag: "SBL" }
+                ListElement { sx: 0.78; sy: 0.82; tag: "SBR" }
+                ListElement { sx: 0.50; sy: 0.88; tag: "SW" }
               }
               Rectangle {
                 required property real sx
@@ -492,16 +492,15 @@ BarWidget {
               }
             }
 
-            Text {
-              anchors.right: parent.right
-              anchors.rightMargin: 10
-              anchors.bottom: parent.bottom
-              anchors.bottomMargin: 8
-              text: "7.1  ·  L/R " + (root.lrBalance > 0 ? "+" : "") + root.lrBalance + "  ·  F/R " + root.dialogueLift + "/5"
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
+          }
+
+          Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            text: "7.1  ·  L/R " + (root.lrBalance > 0 ? "+" : "") + root.lrBalance + "  ·  F/R " + root.dialogueLift + "/5"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
           }
 
           Row {
