@@ -135,6 +135,8 @@ BarWidget {
       return
     }
     if (key === "p") sendAction("power")
+    else if (key === "o") sendAction("power-on")
+    else if (key === "x" || key === "f") sendAction("power-off")
     else if (key === "m") sendAction("mute")
     else if (key === "+" || key === "=") sendAction("volume-up")
     else if (key === "-" || key === "_") sendAction("volume-down")
@@ -210,7 +212,7 @@ BarWidget {
     Text {
       anchors.centerIn: parent
       text: "AV"
-      color: root.foreground
+      color: root.online ? root.foreground : root.dim
       font.family: "sans-serif"
       font.pixelSize: Style.font.bodySmall
       font.bold: true
@@ -219,9 +221,16 @@ BarWidget {
     MouseArea {
       anchors.fill: parent
       hoverEnabled: true
+      acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
       cursorShape: Qt.PointingHandCursor
-      onClicked: root.popupOpen = !root.popupOpen
-      onEntered: if (root.bar) root.bar.showTooltip(root, root.activeName)
+      onClicked: function(mouse) {
+        if (mouse.button === Qt.RightButton || mouse.button === Qt.MiddleButton) {
+          root.sendAction("power")
+        } else {
+          root.popupOpen = !root.popupOpen
+        }
+      }
+      onEntered: if (root.bar) root.bar.showTooltip(root, root.activeName + " · " + (root.online ? "ON" : "STANDBY"))
       onExited: if (root.bar) root.bar.hideTooltip(root)
     }
   }
@@ -514,15 +523,16 @@ BarWidget {
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
-            RemoteKey { action: "power"; text: "PWR" }
-            RemoteKey { action: "mute"; text: "MUTE" }
+            RemoteKey { action: "power-on"; iconText: "󰐥"; text: "ON"; on: root.online; keyWidth: 92 }
+            RemoteKey { action: "power-off"; iconText: "󰤄"; text: "OFF"; on: !root.online; keyWidth: 92 }
+            RemoteKey { action: "mute"; iconText: root.muted ? "󰝟" : "󰕾"; text: "MUTE"; on: root.muted; keyWidth: 92 }
           }
 
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
-            RemoteKey { action: "volume-down"; text: "VOL-" }
-            RemoteKey { action: "volume-up"; text: "VOL+" }
+            RemoteKey { action: "volume-down"; iconText: "󰕿"; text: "VOL−"; keyWidth: 142 }
+            RemoteKey { action: "volume-up"; iconText: "󰖀"; text: "VOL+"; keyWidth: 142 }
           }
 
           Row {
@@ -578,7 +588,7 @@ BarWidget {
             width: parent.width
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
-            text: "[S] STRAIGHT  [7] 7CH  [U] PURE  ·  drag the seat"
+            text: "[O] ON  [X] OFF  [P] PWR  [S] STRT  [7] 7CH  [U] PURE"
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

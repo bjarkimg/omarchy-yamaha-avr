@@ -73,7 +73,9 @@ name is read from the box after the first successful GET.
 
 | Key | Action |
 | --- | --- |
-| P | Power |
+| O | Power On |
+| X | Power Off / Standby |
+| P | Power Toggle |
 | M | Mute |
 | - / + | Volume |
 | 1–5 | HDMI 1–5 |
@@ -83,7 +85,9 @@ name is read from the box after the first successful GET.
 | D | Receiver host |
 | Q or Escape | Close |
 
-Drag the sofa on the 7.1 map for seat position.
+- **Bar chip (AV):** Left-click opens/closes the panel. Right-click or middle-click toggles power directly.
+- **Remote buttons:** Dedicated **ON**, **OFF**, and **MUTE** buttons with active state highlights.
+- **Seat map:** Drag the sofa on the 7.1 map for seat position (L/R tilt and Dialogue Lift).
 
 ## Update
 

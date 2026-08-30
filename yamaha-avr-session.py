@@ -171,6 +171,7 @@ class YamahaSession:
             "lrBalance": self.lr_balance,
             "volumeDb": self.volume_db,
             "status": "awake" if awake else "standby",
+            "connected": self.connected,
         }
 
     def put_main(self, inner: str) -> None:
