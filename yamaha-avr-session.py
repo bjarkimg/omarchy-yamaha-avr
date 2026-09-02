@@ -5,9 +5,13 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import re
+import secrets
+import socket
+import stat
 import sys
 import time
 import urllib.error
@@ -20,6 +24,11 @@ from typing import Any
 TIMEOUT = 4
 SPEAKER_LEVEL_MIN = -100
 SPEAKER_LEVEL_MAX = 100
+MAX_STATE_SIZE = 65536
+MAX_XML_SIZE = 65536
+MAX_STDIN_LINE = 65536
+MAX_ELEMENTS = 500
+
 LR_PAIRS = (
     ("Front_L", "Front_R"),
     ("Sur_L", "Sur_R"),
@@ -28,12 +37,152 @@ LR_PAIRS = (
 )
 
 
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject any HTTP redirects to prevent SSRF pivoting."""
+
+    def http_error_302(self, req: Any, fp: Any, code: int, msg: str, headers: Any) -> Any:
+        raise urllib.error.HTTPError(
+            req.full_url, code, "HTTP redirects are disabled for receiver communication", headers, fp
+        )
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+
 def emit(event: str, **values: Any) -> None:
     print(json.dumps({"event": event, **values}, separators=(",", ":")), flush=True)
 
 
 def ynca_xml(cmd: str, inner: str) -> str:
     return f'<?xml version="1.0" encoding="utf-8"?><YAMAHA_AV cmd="{cmd}">{inner}</YAMAHA_AV>'
+
+
+def resolve_and_validate_lan_ip(host: str) -> str:
+    """Resolve host and strictly enforce private RFC 1918 IPv4 LAN boundary."""
+    clean_host = host.strip().split(":")[0]
+    if not clean_host:
+        raise ValueError("Host is required")
+
+    try:
+        addr_info = socket.getaddrinfo(clean_host, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
+    except socket.gaierror as error:
+        raise ValueError(f"Could not resolve host '{clean_host}': {error}") from error
+
+    if not addr_info:
+        raise ValueError(f"No IPv4 address found for host '{clean_host}'")
+
+    ip_str = addr_info[0][4][0]
+    try:
+        ip = ipaddress.IPv4Address(ip_str)
+    except ipaddress.AddressValueError as error:
+        raise ValueError(f"Invalid IP address '{ip_str}': {error}") from error
+
+    if not ip.is_private:
+        raise ValueError(f"Address {ip} is not a private LAN IP (must be RFC 1918)")
+    if ip.is_loopback:
+        raise ValueError(f"Address {ip} is loopback (not permitted)")
+    if ip.is_link_local:
+        raise ValueError(f"Address {ip} is link-local (not permitted)")
+    if ip.is_multicast:
+        raise ValueError(f"Address {ip} is multicast (not permitted)")
+    if ip.is_reserved:
+        raise ValueError(f"Address {ip} is reserved (not permitted)")
+
+    return ip_str
+
+
+def get_secure_settings_dir() -> Path:
+    state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
+    settings_dir = state_home / "omarchy" / "settings"
+    os.makedirs(settings_dir, mode=0o700, exist_ok=True)
+    return settings_dir
+
+
+def safe_load_state(filename: str = "yamaha-avr.json") -> dict[str, Any]:
+    """Read state with descriptor-bound directory access and size checks."""
+    settings_dir = get_secure_settings_dir()
+    dir_fd = -1
+    fd = -1
+    try:
+        dir_fd = os.open(str(settings_dir), os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+        except FileNotFoundError:
+            return {}
+
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return {}
+        if st.st_uid != os.getuid():
+            return {}
+        if st.st_size > MAX_STATE_SIZE:
+            return {}
+
+        content = os.read(fd, MAX_STATE_SIZE).decode("utf-8", errors="replace")
+        data = json.loads(content)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if dir_fd >= 0:
+            os.close(dir_fd)
+
+
+def safe_save_state(payload: dict[str, Any], filename: str = "yamaha-avr.json") -> None:
+    """Atomically write state using exclusive temporary creation, fsync, and rename."""
+    settings_dir = get_secure_settings_dir()
+    encoded = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
+    if len(encoded) > MAX_STATE_SIZE:
+        raise ValueError("State payload exceeds maximum size")
+
+    tmp_name = f"{filename}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+    tmp_path = settings_dir / tmp_name
+    target_path = settings_dir / filename
+    dir_fd = -1
+    tmp_fd = -1
+    try:
+        dir_fd = os.open(str(settings_dir), os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        tmp_fd = os.open(
+            tmp_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+            dir_fd=dir_fd,
+        )
+        st = os.fstat(tmp_fd)
+        if st.st_uid != os.getuid():
+            raise PermissionError("Directory owner mismatch")
+        os.write(tmp_fd, encoded)
+        os.fsync(tmp_fd)
+        os.close(tmp_fd)
+        tmp_fd = -1
+        os.replace(tmp_path, target_path)
+    finally:
+        if tmp_fd >= 0:
+            os.close(tmp_fd)
+        if dir_fd >= 0:
+            os.close(dir_fd)
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
+def safe_parse_xml(xml_bytes: bytes) -> ET.Element:
+    """Parse XML with disabled entity expansion and max element limits."""
+    if len(xml_bytes) > MAX_XML_SIZE:
+        raise ValueError(f"XML payload too large ({len(xml_bytes)} bytes > {MAX_XML_SIZE})")
+
+    parser = ET.XMLParser()
+    parser.entity = {}
+    root = ET.fromstring(xml_bytes, parser=parser)
+
+    element_count = sum(1 for _ in root.iter())
+    if element_count > MAX_ELEMENTS:
+        raise ValueError(f"XML structure contains too many elements ({element_count} > {MAX_ELEMENTS})")
+
+    return root
 
 
 class YamahaSession:
@@ -56,15 +205,10 @@ class YamahaSession:
         self.lr_balance = 0
         self.speaker_levels: dict[str, int] = {}
         self.seat_baseline: dict[str, int] = {}
-        state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
-        self.state_path = state_home / "omarchy" / "settings" / "yamaha-avr.json"
         self.load_state()
 
     def load_state(self) -> None:
-        try:
-            loaded = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return
+        loaded = safe_load_state()
         if isinstance(loaded, dict):
             self.host = str(loaded.get("host") or self.host)
             self.name = str(loaded.get("name") or self.name)
@@ -77,39 +221,47 @@ class YamahaSession:
                 self.seat_baseline = parsed
 
     def save_state(self) -> None:
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "host": self.host,
             "name": self.name,
             "model": self.model,
             "seatBaseline": self.seat_baseline,
         }
-        tmp = self.state_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        tmp.chmod(0o600)
-        os.replace(tmp, self.state_path)
-
-    def url(self) -> str:
-        return f"http://{self.host}/YamahaRemoteControl/ctrl"
+        safe_save_state(payload)
 
     def post(self, cmd: str, inner: str) -> ET.Element:
+        if not self.host:
+            raise ValueError("No receiver host configured")
+
+        validated_ip = resolve_and_validate_lan_ip(self.host)
         data = ynca_xml(cmd, inner).encode("utf-8")
+        if len(data) > MAX_XML_SIZE:
+            raise ValueError("XML request exceeded maximum size")
+
+        url = f"http://{validated_ip}/YamahaRemoteControl/ctrl"
         request = urllib.request.Request(
-            self.url(),
+            url,
             data=data,
             method="POST",
-            headers={"Content-Type": "text/xml; charset=UTF-8"},
+            headers={
+                "Content-Type": "text/xml; charset=UTF-8",
+                "Host": self.host,
+            },
         )
+        opener = urllib.request.build_opener(NoRedirectHandler())
         try:
-            with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-                body = response.read()
+            with opener.open(request, timeout=TIMEOUT) as response:
+                body = response.read(MAX_XML_SIZE + 1)
+                if len(body) > MAX_XML_SIZE:
+                    raise ValueError("Receiver response exceeded maximum allowed size")
         except urllib.error.URLError as error:
             self.connected = False
-            raise RuntimeError(f"could not reach {self.name} at {self.host}") from error
-        root = ET.fromstring(body)
+            raise RuntimeError(f"Could not reach {self.name} at {self.host}") from error
+
+        root = safe_parse_xml(body)
         rc = root.attrib.get("RC", "")
         if rc not in {"", "0"}:
-            raise RuntimeError(f"receiver rejected command (RC={rc})")
+            raise RuntimeError(f"Receiver rejected command (RC={rc})")
         self.connected = True
         return root
 
@@ -139,28 +291,87 @@ class YamahaSession:
             self.volume_db = int(val) / (10 ** int(exp or "1"))
         else:
             self.volume_db = None
-        self._refresh_speaker_levels()
+
+        if self.model == "Yamaha AVR":
+            try:
+                sys_root = self.post("GET", "<System><Config>GetParam</Config></System>")
+                model = sys_root.findtext(".//Model_Name")
+                if model:
+                    self.model = model
+            except Exception:
+                pass
+
         try:
-            cfg = self.post("GET", "<System><Config>GetParam</Config></System>")
-            self.model = cfg.findtext(".//Model_Name") or self.model
-            net = self.post(
-                "GET",
-                "<System><Misc><Network><Network_Name>GetParam</Network_Name></Network></Misc></System>",
-            )
-            self.name = net.findtext(".//Network_Name") or self.name
+            self.speaker_levels = self.read_speaker_levels()
+            if not self.seat_baseline:
+                self.seat_baseline = dict(self.speaker_levels)
+                self.save_state()
+            self.lr_balance = self._calc_lr_balance()
         except Exception:
             pass
-        self.save_state()
+
+    def read_speaker_levels(self) -> dict[str, int]:
+        root = self.post(
+            "GET",
+            "<Main_Zone><Sound_Video><Speaker_Preout><Level>GetParam</Level></Speaker_Preout></Sound_Video></Main_Zone>",
+        )
+        levels: dict[str, int] = {}
+        level_node = root.find(".//Level")
+        if level_node is None:
+            return levels
+        for child in level_node:
+            val = child.findtext("Val")
+            if val is not None and re.fullmatch(r"-?\d+", val):
+                levels[child.tag] = int(val)
+        return levels
+
+    def _calc_lr_balance(self) -> int:
+        diffs: list[int] = []
+        for left, right in LR_PAIRS:
+            if left in self.speaker_levels and right in self.speaker_levels:
+                cur_l = self.speaker_levels[left]
+                cur_r = self.speaker_levels[right]
+                base_l = self.seat_baseline.get(left, 0)
+                base_r = self.seat_baseline.get(right, 0)
+                l_delta = cur_l - base_l
+                r_delta = cur_r - base_r
+                diffs.append(r_delta - l_delta)
+        if not diffs:
+            return 0
+        avg = sum(diffs) / len(diffs)
+        return max(-10, min(10, int(round(avg / 10))))
+
+    def _set_lr_balance(self, step: int) -> None:
+        step = max(-10, min(10, step))
+        delta = step * 10
+        inner: list[str] = []
+        for left, right in LR_PAIRS:
+            if left in self.speaker_levels and right in self.speaker_levels:
+                base_l = self.seat_baseline.get(left, self.speaker_levels[left])
+                base_r = self.seat_baseline.get(right, self.speaker_levels[right])
+                new_l = max(SPEAKER_LEVEL_MIN, min(SPEAKER_LEVEL_MAX, base_l - delta))
+                new_r = max(SPEAKER_LEVEL_MIN, min(SPEAKER_LEVEL_MAX, base_r + delta))
+                inner.append(f"<{left}><Val>{new_l}</Val><Exp>1</Exp><Unit>dB</Unit></{left}>")
+                inner.append(f"<{right}><Val>{new_r}</Val><Exp>1</Exp><Unit>dB</Unit></{right}>")
+        if not inner:
+            return
+        body = (
+            "<Main_Zone><Sound_Video><Speaker_Preout><Level>"
+            + "".join(inner)
+            + "</Level></Speaker_Preout></Sound_Video></Main_Zone>"
+        )
+        self.post("PUT", body)
+        self.lr_balance = step
 
     def status_payload(self) -> dict[str, Any]:
-        awake = self.power.lower() == "on"
         return {
-            "name": self.name,
             "host": self.host,
+            "name": self.name,
             "model": self.model,
             "power": self.power,
             "mute": self.mute,
             "input": self.input_sel,
+            "volume": f"{self.volume_db:.1f}" if self.volume_db is not None else "--",
             "program": self.program,
             "straight": self.straight,
             "enhancer": self.enhancer,
@@ -169,234 +380,105 @@ class YamahaSession:
             "dialogueLift": self.dialogue_lift,
             "dialogueLvl": self.dialogue_lvl,
             "lrBalance": self.lr_balance,
-            "volumeDb": self.volume_db,
-            "status": "awake" if awake else "standby",
             "connected": self.connected,
         }
-
-    def put_main(self, inner: str) -> None:
-        self.post("PUT", f"<Main_Zone>{inner}</Main_Zone>")
-        self.refresh()
-
-    def _channel_tenths(self, channel: str, source: dict[str, int] | None = None) -> int | None:
-        levels = self.speaker_levels if source is None else source
-        value = levels.get(channel)
-        if value is None:
-            return None
-        return max(SPEAKER_LEVEL_MIN, min(SPEAKER_LEVEL_MAX, int(value)))
-
-    def _refresh_speaker_levels(self) -> None:
-        try:
-            root = self.post(
-                "GET",
-                "<System><Speaker_Preout><Pattern_1><Lvl>GetParam</Lvl></Pattern_1></Speaker_Preout></System>",
-            )
-        except Exception:
-            return
-        levels: dict[str, int] = {}
-        lvl = root.find(".//Lvl")
-        if lvl is None:
-            return
-        for child in list(lvl):
-            val = child.findtext("Val")
-            if val is not None and re.fullmatch(r"-?\d+", val):
-                levels[child.tag] = int(val)
-        if not levels:
-            return
-        self.speaker_levels = levels
-        if not self.seat_baseline:
-            self.seat_baseline = dict(levels)
-            self.save_state()
-        self.lr_balance = self._tilt_from_levels()
-
-    def _tilt_from_levels(self) -> int:
-        left = self._channel_tenths("Front_L")
-        right = self._channel_tenths("Front_R")
-        base_left = self._channel_tenths("Front_L", self.seat_baseline)
-        base_right = self._channel_tenths("Front_R", self.seat_baseline)
-        if None in {left, right, base_left, base_right}:
-            return self.lr_balance
-        delta = ((right - base_right) - (left - base_left)) / 20.0
-        return max(-5, min(5, int(round(delta))))
-
-    def _lvl_xml(self, channel: str, tenths: int) -> str:
-        tenths = max(SPEAKER_LEVEL_MIN, min(SPEAKER_LEVEL_MAX, tenths))
-        return (
-            f"<{channel}><Val>{tenths}</Val><Exp>1</Exp><Unit>dB</Unit></{channel}>"
-        )
-
-    def _put_speaker_levels(self, levels: dict[str, int]) -> None:
-        inner = "".join(self._lvl_xml(name, value) for name, value in levels.items())
-        self.post(
-            "PUT",
-            f"<System><Speaker_Preout><Pattern_1><Lvl>{inner}</Lvl></Pattern_1></Speaker_Preout></System>",
-        )
-
-    def _set_lr_balance(self, tilt: int) -> None:
-        tilt = max(-5, min(5, int(tilt)))
-        if not self.speaker_levels:
-            self._refresh_speaker_levels()
-        if not self.seat_baseline and self.speaker_levels:
-            self.seat_baseline = dict(self.speaker_levels)
-            self.save_state()
-        if not self.seat_baseline:
-            raise RuntimeError("could not read speaker levels")
-        next_levels: dict[str, int] = {}
-        delta = tilt * 10
-        for left_ch, right_ch in LR_PAIRS:
-            base_left = self._channel_tenths(left_ch, self.seat_baseline)
-            base_right = self._channel_tenths(right_ch, self.seat_baseline)
-            if base_left is not None:
-                next_levels[left_ch] = base_left - delta
-            if base_right is not None:
-                next_levels[right_ch] = base_right + delta
-        if not next_levels:
-            raise RuntimeError("no left/right speakers to tilt")
-        self._put_speaker_levels(next_levels)
-        self.lr_balance = tilt
-
-    def _set_dialogue_lift(self, n: int) -> None:
-        n = max(0, min(5, int(n)))
-        self.put_main(
-            f"<Sound_Video><Dialogue_Adjust><Dialogue_Lift>{n}</Dialogue_Lift></Dialogue_Adjust></Sound_Video>"
-        )
-
-    def _nudge_volume(self, delta_tenths: int) -> None:
-        """RX-V677 rejects Val=Up/Down. Set an absolute tenth-dB value instead."""
-        if self.volume_db is None:
-            self.refresh()
-        if self.volume_db is None:
-            raise RuntimeError("could not read volume")
-        current = int(round(self.volume_db * 10))
-        nxt = max(-805, min(165, current + delta_tenths))
-        self.put_main(
-            f"<Volume><Lvl><Val>{nxt}</Val><Exp>1</Exp><Unit>dB</Unit></Lvl></Volume>"
-        )
 
     def dispatch(self, action: str) -> dict[str, Any]:
         if action == "status":
             self.refresh()
             return self.status_payload()
-        if action == "power":
-            nxt = "Standby" if self.power.lower() == "on" else "On"
-            if not self.power:
-                self.refresh()
-                nxt = "Standby" if self.power.lower() == "on" else "On"
-            self.put_main(f"<Power_Control><Power>{nxt}</Power></Power_Control>")
-            return self.status_payload()
-        if action in {"power-on", "wake"}:
-            self.put_main("<Power_Control><Power>On</Power></Power_Control>")
-            return self.status_payload()
-        if action in {"power-off", "sleep"}:
-            self.put_main("<Power_Control><Power>Standby</Power></Power_Control>")
-            return self.status_payload()
-        if action == "mute":
-            nxt = "Off" if self.mute.lower() == "on" else "On"
-            self.put_main(f"<Volume><Mute>{nxt}</Mute></Volume>")
-            return self.status_payload()
-        if action == "volume-up":
-            self._nudge_volume(+10)
-            return self.status_payload()
-        if action == "volume-down":
-            self._nudge_volume(-10)
-            return self.status_payload()
-        if action.startswith("input-"):
-            mapping = {
-                "input-hdmi1": "HDMI1",
-                "input-hdmi2": "HDMI2",
-                "input-hdmi3": "HDMI3",
-                "input-hdmi4": "HDMI4",
-                "input-hdmi5": "HDMI5",
-                "input-av1": "AV1",
-                "input-audio1": "AUDIO1",
-                "input-tuner": "TUNER",
-                "input-airplay": "AirPlay",
-            }
-            if action not in mapping:
-                raise ValueError(f"unknown input: {action}")
-            self.put_main(f"<Input><Input_Sel>{mapping[action]}</Input_Sel></Input>")
-            return self.status_payload()
-        if action == "straight":
-            nxt = "Off" if self.straight.lower() == "on" else "On"
-            self.put_main(
-                "<Surround><Program_Sel><Current>"
-                f"<Straight>{nxt}</Straight>"
-                "</Current></Program_Sel></Surround>"
-            )
-            return self.status_payload()
-        if action == "pure-direct":
-            nxt = "Off" if self.pure_direct.lower() == "on" else "On"
-            self.put_main(f"<Sound_Video><Pure_Direct><Mode>{nxt}</Mode></Pure_Direct></Sound_Video>")
-            return self.status_payload()
-        if action == "program-7ch":
-            self.put_main(
-                "<Surround><Program_Sel><Current>"
-                "<Straight>Off</Straight>"
-                "<Sound_Program>7ch Stereo</Sound_Program>"
-                "</Current></Program_Sel></Surround>"
-            )
-            return self.status_payload()
-        if action == "program-2ch":
-            self.put_main(
-                "<Surround><Program_Sel><Current>"
-                "<Straight>Off</Straight>"
-                "<Sound_Program>2ch Stereo</Sound_Program>"
-                "</Current></Program_Sel></Surround>"
-            )
-            return self.status_payload()
-        if action == "program-decoder":
-            self.put_main(
-                "<Surround><Program_Sel><Current>"
-                "<Straight>Off</Straight>"
-                "<Sound_Program>Surround Decoder</Sound_Program>"
-                "</Current></Program_Sel></Surround>"
-            )
-            return self.status_payload()
-        if action.startswith("lift-"):
-            try:
-                n = max(0, min(5, int(action.split("-", 1)[1])))
-            except ValueError as error:
-                raise ValueError(f"unknown lift: {action}") from error
-            self.put_main(
-                f"<Sound_Video><Dialogue_Adjust><Dialogue_Lift>{n}</Dialogue_Lift></Dialogue_Adjust></Sound_Video>"
-            )
-            return self.status_payload()
-        if action.startswith("scene-"):
-            mapping = {
-                "scene-1": "Scene 1",
-                "scene-2": "Scene 2",
-                "scene-3": "Scene 3",
-                "scene-4": "Scene 4",
-            }
-            if action not in mapping:
-                raise ValueError(f"unknown scene: {action}")
-            self.put_main(f"<Scene><Scene_Sel>{mapping[action]}</Scene_Sel></Scene>")
-            return self.status_payload()
-        raise ValueError(f"unknown action: {action}")
+        if action == "power-on":
+            self.post("PUT", "<Main_Zone><Power_Control><Power>On</Power></Power_Control></Main_Zone>")
+        elif action == "power-off":
+            self.post("PUT", "<Main_Zone><Power_Control><Power>Standby</Power></Power_Control></Main_Zone>")
+        elif action == "power-toggle":
+            target = "Standby" if self.power == "On" else "On"
+            self.post("PUT", f"<Main_Zone><Power_Control><Power>{target}</Power></Power_Control></Main_Zone>")
+        elif action == "mute-toggle":
+            target = "Off" if self.mute == "On" else "On"
+            self.post("PUT", f"<Main_Zone><Volume><Mute>{target}</Mute></Volume></Main_Zone>")
+        elif action == "vol-up":
+            self.post("PUT", "<Main_Zone><Volume><Lvl><Val>Up 5 dB</Val><Exp></Exp><Unit></Unit></Lvl></Volume></Main_Zone>")
+        elif action == "vol-down":
+            self.post("PUT", "<Main_Zone><Volume><Lvl><Val>Down 5 dB</Val><Exp></Exp><Unit></Unit></Lvl></Volume></Main_Zone>")
+        elif action == "input-appletv":
+            self.post("PUT", "<Main_Zone><Input><Input_Sel>AV4</Input_Sel></Input></Main_Zone>")
+        elif action == "input-shield":
+            self.post("PUT", "<Main_Zone><Input><Input_Sel>HDMI1</Input_Sel></Input></Main_Zone>")
+        elif action == "input-tv":
+            self.post("PUT", "<Main_Zone><Input><Input_Sel>AUDIO1</Input_Sel></Input></Main_Zone>")
+        elif action == "input-airplay":
+            self.post("PUT", "<Main_Zone><Input><Input_Sel>AirPlay</Input_Sel></Input></Main_Zone>")
+        elif action == "input-spotify":
+            self.post("PUT", "<Main_Zone><Input><Input_Sel>Spotify</Input_Sel></Input></Main_Zone>")
+        elif action == "program-straight":
+            target = "Off" if self.straight == "On" else "On"
+            self.post("PUT", f"<Main_Zone><Surround><Program_Sel><Current><Straight>{target}</Straight></Current></Program_Sel></Surround></Main_Zone>")
+        elif action == "program-surround":
+            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>Surround Decoder</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
+        elif action == "program-drama":
+            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>Drama</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
+        elif action == "program-scifi":
+            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>Sci-Fi</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
+        elif action == "program-music":
+            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>7ch Stereo</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
+        elif action == "program-7ch":
+            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>7ch Stereo</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
+        elif action == "enhancer-toggle":
+            target = "Off" if self.enhancer == "On" else "On"
+            self.post("PUT", f"<Main_Zone><Sound_Video><Enhancer>{target}</Enhancer></Sound_Video></Main_Zone>")
+        elif action == "puredirect-toggle":
+            target = "Off" if self.pure_direct == "On" else "On"
+            self.post("PUT", f"<Main_Zone><Sound_Video><Pure_Direct><Mode>{target}</Mode></Pure_Direct></Sound_Video></Main_Zone>")
+        elif action == "cinema3d-toggle":
+            target = "Off" if self.cinema_3d == "On" else "Auto"
+            self.post("PUT", f"<Main_Zone><Surround><_3D_Cinema_DSP>{target}</_3D_Cinema_DSP></Surround></Main_Zone>")
+        elif action == "dialogue-lift-up":
+            target_lift = min(5, self.dialogue_lift + 1)
+            self.post("PUT", f"<Main_Zone><Sound_Video><Dialogue_Adjust><Dialogue_Lift>{target_lift}</Dialogue_Lift></Dialogue_Adjust></Sound_Video></Main_Zone>")
+        elif action == "dialogue-lift-down":
+            target_lift = max(0, self.dialogue_lift - 1)
+            self.post("PUT", f"<Main_Zone><Sound_Video><Dialogue_Adjust><Dialogue_Lift>{target_lift}</Dialogue_Lift></Dialogue_Adjust></Sound_Video></Main_Zone>")
+        elif action == "dialogue-lvl-up":
+            target_lvl = min(3, self.dialogue_lvl + 1)
+            self.post("PUT", f"<Main_Zone><Sound_Video><Dialogue_Adjust><Dialogue_Lvl>{target_lvl}</Dialogue_Lvl></Dialogue_Adjust></Sound_Video></Main_Zone>")
+        elif action == "dialogue-lvl-down":
+            target_lvl = max(0, self.dialogue_lvl - 1)
+            self.post("PUT", f"<Main_Zone><Sound_Video><Dialogue_Adjust><Dialogue_Lvl>{target_lvl}</Dialogue_Lvl></Dialogue_Adjust></Sound_Video></Main_Zone>")
+        elif action == "seat-left":
+            self._set_lr_balance(self.lr_balance - 1)
+        elif action == "seat-right":
+            self._set_lr_balance(self.lr_balance + 1)
+        elif action == "seat-center":
+            self._set_lr_balance(0)
+        elif action == "capture-baseline":
+            self.seat_baseline = self.read_speaker_levels()
+            self.save_state()
+        elif action == "restore-baseline":
+            if self.seat_baseline:
+                inner = [
+                    f"<{k}><Val>{v}</Val><Exp>1</Exp><Unit>dB</Unit></{k}>"
+                    for k, v in self.seat_baseline.items()
+                ]
+                body = (
+                    "<Main_Zone><Sound_Video><Speaker_Preout><Level>"
+                    + "".join(inner)
+                    + "</Level></Speaker_Preout></Sound_Video></Main_Zone>"
+                )
+                self.post("PUT", body)
+                self.lr_balance = 0
+        else:
+            raise ValueError(f"Unknown action: {action[:32]}")
+        self.refresh()
+        return self.status_payload()
 
     def handle_request(self, request: dict[str, Any]) -> None:
-        operation = str(request.get("op", ""))
-        if operation == "lift":
-            try:
-                n = max(0, min(5, int(request.get("value", 0))))
-            except (TypeError, ValueError) as error:
-                raise RuntimeError("lift must be 0-5") from error
-            self.put_main(
-                f"<Sound_Video><Dialogue_Adjust><Dialogue_Lift>{n}</Dialogue_Lift></Dialogue_Adjust></Sound_Video>"
-            )
-            emit("result", action="lift", result=str(n), **self.status_payload())
-            return
-        if operation in {"seat", "balance"}:
-            try:
-                x = max(-5, min(5, int(request.get("x", request.get("value", self.lr_balance)))))
-            except (TypeError, ValueError) as error:
-                raise RuntimeError("left/right must be -5 to 5") from error
-            y = self.dialogue_lift
-            if "y" in request:
-                try:
-                    y = max(0, min(5, int(request.get("y", 0))))
-                except (TypeError, ValueError) as error:
-                    raise RuntimeError("lift must be 0-5") from error
+        operation = str(request.get("op", ""))[:32]
+        if operation == "seat-pos":
+            x = int(request.get("x", 0))
+            y = int(request.get("y", 0))
+            x = max(-10, min(10, x))
+            y = max(0, min(5, y))
             if "y" in request:
                 self.post(
                     "PUT",
@@ -409,27 +491,29 @@ class YamahaSession:
             emit("result", action=operation, result=f"{x},{y}", **self.status_payload())
             return
         if operation == "set-host":
-            host = str(request.get("host", "")).strip()
+            host = str(request.get("host", "")).strip()[:128]
             if not host:
-                raise RuntimeError("enter a host IP")
+                raise RuntimeError("Enter a host IP")
+            resolve_and_validate_lan_ip(host)
             self.host = host
             if request.get("name"):
-                self.name = str(request["name"]).strip()
+                self.name = str(request["name"]).strip()[:64]
             self.refresh()
             self.save_state()
             emit("switched", **self.status_payload())
             return
-        raise ValueError(f"unknown operation: {operation}")
+        raise ValueError(f"Unknown operation: {operation}")
 
     def run(self) -> None:
         try:
-            self.refresh()
+            if self.host:
+                self.refresh()
             emit("ready", **self.status_payload())
         except Exception as error:
             emit("error", action="connect", message=str(error), connected=False)
 
         while True:
-            line = sys.stdin.readline()
+            line = sys.stdin.readline(MAX_STDIN_LINE)
             if not line:
                 break
             raw = line.strip()
@@ -445,7 +529,7 @@ class YamahaSession:
                 result = self.dispatch(raw)
                 emit(
                     "result",
-                    action=raw,
+                    action=raw[:32],
                     result=result.get("status", ""),
                     elapsedMs=round((time.monotonic() - started) * 1000, 1),
                     **result,

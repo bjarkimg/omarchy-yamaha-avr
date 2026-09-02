@@ -164,18 +164,46 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  property int restartAttempts: 0
+  readonly property int maxRestartAttempts: 5
+
+  function manualReconnect() {
+    restartAttempts = 0
+    root.processError = ""
+    sessionProcess.running = false
+    sessionProcess.running = true
+  }
+
   Process {
     id: sessionProcess
     command: [root.remotePath, "--host", root.host, "--name", root.deviceName, "session"]
     stdinEnabled: true
     running: true
-    stdout: SplitParser { onRead: function(line) { root.handleSessionLine(line) } }
-    stderr: SplitParser { onRead: function(line) { root.processError = String(line || "").trim() } }
+    stdout: SplitParser {
+      onRead: function(line) {
+        if (line && line.length <= 65536) {
+          root.restartAttempts = 0
+          root.handleSessionLine(line)
+        }
+      }
+    }
+    stderr: SplitParser {
+      onRead: function(line) {
+        if (line) root.processError = String(line).slice(0, 512).trim()
+      }
+    }
     onExited: function() {
       root.sessionReady = false
       root.online = false
       root.statusText = "OFFLINE"
-      sessionRestart.restart()
+      if (root.restartAttempts < root.maxRestartAttempts) {
+        root.restartAttempts++
+        var delay = Math.min(10000, 1000 * Math.pow(2, root.restartAttempts - 1))
+        sessionRestart.interval = delay
+        sessionRestart.restart()
+      } else {
+        root.processError = "Backend stopped after multiple failures. Open settings to reconnect."
+      }
     }
   }
 
