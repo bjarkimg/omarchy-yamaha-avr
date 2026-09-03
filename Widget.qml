@@ -664,6 +664,11 @@ BarWidget {
             foreground: root.foreground
             accent: root.accent
             onAccepted: root.setHost()
+            Keys.onEscapePressed: function(event) {
+              root.viewMode = "remote"
+              keyCatcher.forceActiveFocus()
+              event.accepted = true
+            }
           }
           TextField {
             id: nameInput
@@ -672,17 +677,41 @@ BarWidget {
             foreground: root.foreground
             accent: root.accent
             onAccepted: root.setHost()
+            Keys.onEscapePressed: function(event) {
+              root.viewMode = "remote"
+              keyCatcher.forceActiveFocus()
+              event.accepted = true
+            }
           }
-          Button {
-            width: parent.width
-            height: 38
-            text: "CONNECT"
-            foreground: root.foreground
-            accent: root.accent
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
-            bordered: true
-            onClicked: root.setHost()
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(7)
+
+            Button {
+              width: 142
+              height: 38
+              text: "CANCEL"
+              iconText: "󰁍"
+              foreground: root.foreground
+              accent: root.accent
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              bordered: true
+              onClicked: root.viewMode = "remote"
+            }
+
+            Button {
+              width: 142
+              height: 38
+              text: "CONNECT"
+              iconText: "󰒋"
+              foreground: root.foreground
+              accent: root.accent
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              bordered: true
+              onClicked: root.setHost()
+            }
           }
         }
       }
