@@ -62,13 +62,19 @@ BarWidget {
       lrBalance = Math.max(-5, Math.min(5, Number(message.lrBalance)))
     if (message.volumeDb !== undefined && message.volumeDb !== null && message.volumeDb !== "")
       volumeLabel = Number(message.volumeDb).toFixed(1) + " dB"
+    else if (message.volume !== undefined && message.volume !== null && message.volume !== "" && message.volume !== "--")
+      volumeLabel = String(message.volume) + " dB"
     online = String(message.power || "").toLowerCase() === "on" || Boolean(message.connected)
-    if (String(message.status) === "standby") {
+    if (String(message.status) === "standby" || String(message.power || "").toLowerCase() === "standby") {
       online = false
       statusText = "STANDBY"
-    } else if (String(message.status) === "awake") {
+    } else if (String(message.status) === "awake" || String(message.power || "").toLowerCase() === "on") {
       online = true
       statusText = muted ? "MUTED" : (inputSel || "ON")
+    } else if (online) {
+      statusText = muted ? "MUTED" : (inputSel || "ON")
+    } else {
+      statusText = "OFFLINE"
     }
   }
 

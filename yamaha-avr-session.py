@@ -379,10 +379,10 @@ class YamahaSession:
     def read_speaker_levels(self) -> dict[str, int]:
         root = self.post(
             "GET",
-            "<Main_Zone><Sound_Video><Speaker_Preout><Level>GetParam</Level></Speaker_Preout></Sound_Video></Main_Zone>",
+            "<System><Speaker_Preout><Pattern_1><Lvl>GetParam</Lvl></Pattern_1></Speaker_Preout></System>",
         )
         levels: dict[str, int] = {}
-        level_node = root.find(".//Level")
+        level_node = root.find(".//Lvl")
         if level_node is None:
             return levels
         for child in level_node:
@@ -422,15 +422,17 @@ class YamahaSession:
         if not inner:
             return
         body = (
-            "<Main_Zone><Sound_Video><Speaker_Preout><Level>"
+            "<System><Speaker_Preout><Pattern_1><Lvl>"
             + "".join(inner)
-            + "</Level></Speaker_Preout></Sound_Video></Main_Zone>"
+            + "</Lvl></Pattern_1></Speaker_Preout></System>"
         )
         self.post("PUT", body)
         self.lr_balance = step
 
     def status_payload(self) -> dict[str, Any]:
+        status = "awake" if self.power == "On" else "standby"
         return {
+            "status": status,
             "host": sanitize_text(self.host, 128),
             "name": sanitize_text(self.name, 64),
             "model": sanitize_text(self.model, 64),
@@ -438,6 +440,7 @@ class YamahaSession:
             "mute": sanitize_text(self.mute, 16),
             "input": sanitize_text(self.input_sel, 32),
             "volume": f"{self.volume_db:.1f}" if self.volume_db is not None else "--",
+            "volumeDb": self.volume_db,
             "program": sanitize_text(self.program, 64),
             "straight": sanitize_text(self.straight, 16),
             "enhancer": sanitize_text(self.enhancer, 16),
@@ -453,49 +456,55 @@ class YamahaSession:
         if action == "status":
             self.refresh()
             return self.status_payload()
-        if action == "power-on":
+        if action in {"power", "power-toggle"}:
+            target = "Standby" if self.power == "On" else "On"
+            self.post("PUT", f"<Main_Zone><Power_Control><Power>{target}</Power></Power_Control></Main_Zone>")
+        elif action == "power-on":
             self.post("PUT", "<Main_Zone><Power_Control><Power>On</Power></Power_Control></Main_Zone>")
         elif action == "power-off":
             self.post("PUT", "<Main_Zone><Power_Control><Power>Standby</Power></Power_Control></Main_Zone>")
-        elif action == "power-toggle":
-            target = "Standby" if self.power == "On" else "On"
-            self.post("PUT", f"<Main_Zone><Power_Control><Power>{target}</Power></Power_Control></Main_Zone>")
-        elif action == "mute-toggle":
+        elif action in {"mute", "mute-toggle"}:
             target = "Off" if self.mute == "On" else "On"
             self.post("PUT", f"<Main_Zone><Volume><Mute>{target}</Mute></Volume></Main_Zone>")
-        elif action == "vol-up":
-            self.post("PUT", "<Main_Zone><Volume><Lvl><Val>Up 5 dB</Val><Exp></Exp><Unit></Unit></Lvl></Volume></Main_Zone>")
-        elif action == "vol-down":
-            self.post("PUT", "<Main_Zone><Volume><Lvl><Val>Down 5 dB</Val><Exp></Exp><Unit></Unit></Lvl></Volume></Main_Zone>")
-        elif action == "input-appletv":
-            self.post("PUT", "<Main_Zone><Input><Input_Sel>AV4</Input_Sel></Input></Main_Zone>")
-        elif action == "input-shield":
-            self.post("PUT", "<Main_Zone><Input><Input_Sel>HDMI1</Input_Sel></Input></Main_Zone>")
-        elif action == "input-tv":
-            self.post("PUT", "<Main_Zone><Input><Input_Sel>AUDIO1</Input_Sel></Input></Main_Zone>")
-        elif action == "input-airplay":
-            self.post("PUT", "<Main_Zone><Input><Input_Sel>AirPlay</Input_Sel></Input></Main_Zone>")
-        elif action == "input-spotify":
-            self.post("PUT", "<Main_Zone><Input><Input_Sel>Spotify</Input_Sel></Input></Main_Zone>")
-        elif action == "program-straight":
+        elif action in {"volume-up", "vol-up"}:
+            if self.volume_db is not None:
+                new_vol = int(round((self.volume_db + 0.5) * 10))
+                self.post("PUT", f"<Main_Zone><Volume><Lvl><Val>{new_vol}</Val><Exp>1</Exp><Unit>dB</Unit></Lvl></Volume></Main_Zone>")
+        elif action in {"volume-down", "vol-down"}:
+            if self.volume_db is not None:
+                new_vol = int(round((self.volume_db - 0.5) * 10))
+                self.post("PUT", f"<Main_Zone><Volume><Lvl><Val>{new_vol}</Val><Exp>1</Exp><Unit>dB</Unit></Lvl></Volume></Main_Zone>")
+        elif action.startswith("input-"):
+            inp = action[6:].upper()
+            mapping = {
+                "APPLETV": "AV4",
+                "SHIELD": "HDMI1",
+                "TV": "AUDIO1",
+                "AIRPLAY": "AirPlay",
+                "SPOTIFY": "Spotify",
+            }
+            target_input = mapping.get(inp, inp)
+            self.post("PUT", f"<Main_Zone><Input><Input_Sel>{target_input}</Input_Sel></Input></Main_Zone>")
+        elif action.startswith("scene-"):
+            num = action[6:]
+            self.post("PUT", f"<Main_Zone><Scene><Scene_Sel>Scene {num}</Scene_Sel></Scene></Main_Zone>")
+        elif action in {"straight", "program-straight"}:
             target = "Off" if self.straight == "On" else "On"
             self.post("PUT", f"<Main_Zone><Surround><Program_Sel><Current><Straight>{target}</Straight></Current></Program_Sel></Surround></Main_Zone>")
+        elif action in {"pure-direct", "puredirect-toggle"}:
+            target = "Off" if self.pure_direct == "On" else "On"
+            self.post("PUT", f"<Main_Zone><Sound_Video><Pure_Direct><Mode>{target}</Mode></Pure_Direct></Sound_Video></Main_Zone>")
+        elif action in {"program-7ch", "7ch", "program-music"}:
+            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>7ch Stereo</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
         elif action == "program-surround":
             self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>Surround Decoder</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
         elif action == "program-drama":
             self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>Drama</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
         elif action == "program-scifi":
             self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>Sci-Fi</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
-        elif action == "program-music":
-            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>7ch Stereo</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
-        elif action == "program-7ch":
-            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>7ch Stereo</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
         elif action == "enhancer-toggle":
             target = "Off" if self.enhancer == "On" else "On"
             self.post("PUT", f"<Main_Zone><Sound_Video><Enhancer>{target}</Enhancer></Sound_Video></Main_Zone>")
-        elif action == "puredirect-toggle":
-            target = "Off" if self.pure_direct == "On" else "On"
-            self.post("PUT", f"<Main_Zone><Sound_Video><Pure_Direct><Mode>{target}</Mode></Pure_Direct></Sound_Video></Main_Zone>")
         elif action == "cinema3d-toggle":
             target = "Off" if self.cinema_3d == "On" else "Auto"
             self.post("PUT", f"<Main_Zone><Surround><_3D_Cinema_DSP>{target}</_3D_Cinema_DSP></Surround></Main_Zone>")
@@ -527,9 +536,9 @@ class YamahaSession:
                     for k, v in self.seat_baseline.items()
                 ]
                 body = (
-                    "<Main_Zone><Sound_Video><Speaker_Preout><Level>"
+                    "<System><Speaker_Preout><Pattern_1><Lvl>"
                     + "".join(inner)
-                    + "</Level></Speaker_Preout></Sound_Video></Main_Zone>"
+                    + "</Lvl></Pattern_1></Speaker_Preout></System>"
                 )
                 self.post("PUT", body)
                 self.lr_balance = 0
