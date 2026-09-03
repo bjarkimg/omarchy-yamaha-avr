@@ -65,5 +65,4 @@ if [[ $1 == session ]]; then
   exec "$PYTHON_BIN" "$SESSION_SCRIPT" --host "$DEVICE_HOST" --name "$DEVICE_NAME"
 fi
 
-echo "yamaha-avr: one-shot actions run through the bar session" >&2
-exit 2
+printf '%s\nquit\n' "$1" | "$PYTHON_BIN" "$SESSION_SCRIPT" --host "$DEVICE_HOST" --name "$DEVICE_NAME"

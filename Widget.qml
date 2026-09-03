@@ -157,7 +157,11 @@ BarWidget {
     else if (key === "s") sendAction("straight")
     else if (key === "u") sendAction("pure-direct")
     else if (key === "7") sendAction("program-7ch")
-    else if (key === "d") viewMode = "devices"
+    else if (key === "d") {
+      hostInput.text = root.activeHost
+      nameInput.text = root.activeName
+      viewMode = "devices"
+    }
     else if (key === "q") close()
   }
 
