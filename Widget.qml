@@ -53,9 +53,9 @@ BarWidget {
     muted = String(message.mute || "").toLowerCase() === "on"
     inputSel = String(message.input || inputSel)
     program = String(message.program || program)
-    straightOn = String(message.straight || "").toLowerCase() === "on"
     pureOn = String(message.pureDirect || "").toLowerCase() === "on"
-    sevenOn = String(program).indexOf("7ch") >= 0 && !straightOn
+    straightOn = String(message.straight || "").toLowerCase() === "on" && !pureOn
+    sevenOn = String(program).indexOf("7ch") >= 0 && !straightOn && !pureOn
     if (!seatBusy && message.dialogueLift !== undefined && message.dialogueLift !== null && message.dialogueLift !== "")
       dialogueLift = Math.max(0, Math.min(5, Number(message.dialogueLift)))
     if (!seatBusy && message.lrBalance !== undefined && message.lrBalance !== null && message.lrBalance !== "")

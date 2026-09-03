@@ -489,19 +489,31 @@ class YamahaSession:
             num = action[6:]
             self.post("PUT", f"<Main_Zone><Scene><Scene_Sel>Scene {num}</Scene_Sel></Scene></Main_Zone>")
         elif action in {"straight", "program-straight"}:
+            if self.pure_direct == "On":
+                self.post("PUT", "<Main_Zone><Sound_Video><Pure_Direct><Mode>Off</Mode></Pure_Direct></Sound_Video></Main_Zone>")
+                self.pure_direct = "Off"
             target = "Off" if self.straight == "On" else "On"
             self.post("PUT", f"<Main_Zone><Surround><Program_Sel><Current><Straight>{target}</Straight></Current></Program_Sel></Surround></Main_Zone>")
         elif action in {"pure-direct", "puredirect-toggle"}:
             target = "Off" if self.pure_direct == "On" else "On"
             self.post("PUT", f"<Main_Zone><Sound_Video><Pure_Direct><Mode>{target}</Mode></Pure_Direct></Sound_Video></Main_Zone>")
         elif action in {"program-7ch", "7ch", "program-music"}:
+            if self.pure_direct == "On":
+                self.post("PUT", "<Main_Zone><Sound_Video><Pure_Direct><Mode>Off</Mode></Pure_Direct></Sound_Video></Main_Zone>")
+                self.pure_direct = "Off"
+            if self.straight == "On":
+                self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Straight>Off</Straight></Current></Program_Sel></Surround></Main_Zone>")
+                self.straight = "Off"
             self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>7ch Stereo</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
-        elif action == "program-surround":
-            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>Surround Decoder</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
-        elif action == "program-drama":
-            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>Drama</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
-        elif action == "program-scifi":
-            self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Sound_Program>Sci-Fi</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
+        elif action in {"program-surround", "program-drama", "program-scifi"}:
+            if self.pure_direct == "On":
+                self.post("PUT", "<Main_Zone><Sound_Video><Pure_Direct><Mode>Off</Mode></Pure_Direct></Sound_Video></Main_Zone>")
+                self.pure_direct = "Off"
+            if self.straight == "On":
+                self.post("PUT", "<Main_Zone><Surround><Program_Sel><Current><Straight>Off</Straight></Current></Program_Sel></Surround></Main_Zone>")
+                self.straight = "Off"
+            prog_name = "Surround Decoder" if action == "program-surround" else ("Drama" if action == "program-drama" else "Sci-Fi")
+            self.post("PUT", f"<Main_Zone><Surround><Program_Sel><Current><Sound_Program>{prog_name}</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
         elif action == "enhancer-toggle":
             target = "Off" if self.enhancer == "On" else "On"
             self.post("PUT", f"<Main_Zone><Sound_Video><Enhancer>{target}</Enhancer></Sound_Video></Main_Zone>")
