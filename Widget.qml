@@ -291,25 +291,44 @@ BarWidget {
     property string actionDown: ""
     property string actionUp: ""
     property string setOp: ""
+    property string tooltipInfo: ""
     anchors.horizontalCenter: parent.horizontalCenter
     spacing: Style.space(6)
 
-    Text {
+    Item {
       width: 70
       height: 34
-      verticalAlignment: Text.AlignVCenter
-      text: toneRow.title
-      textFormat: Text.PlainText
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.bodySmall
-      font.bold: true
+
+      Text {
+        anchors.fill: parent
+        verticalAlignment: Text.AlignVCenter
+        text: toneRow.title
+        textFormat: Text.PlainText
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        font.bold: true
+      }
+
+      MouseArea {
+        id: titleHover
+        anchors.fill: parent
+        hoverEnabled: true
+      }
+
+      PanelToolTip {
+        visible: titleHover.containsMouse && toneRow.tooltipInfo !== ""
+        text: toneRow.tooltipInfo
+        panelForeground: root.foreground
+        fontFamily: root.fontFamily
+      }
     }
 
     Button {
       width: 42
       height: 34
       text: "−"
+      tooltipText: "Decrease " + toneRow.title
       foreground: root.foreground
       accent: root.accent
       fontFamily: root.fontFamily
@@ -335,6 +354,7 @@ BarWidget {
       width: 42
       height: 34
       text: "+"
+      tooltipText: "Increase " + toneRow.title
       foreground: root.foreground
       accent: root.accent
       fontFamily: root.fontFamily
@@ -347,6 +367,7 @@ BarWidget {
       width: 42
       height: 34
       text: "0"
+      tooltipText: "Reset " + toneRow.title + " to 0.0 dB"
       foreground: root.dim
       accent: root.accent
       fontFamily: root.fontFamily
@@ -690,24 +711,24 @@ BarWidget {
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
-            RemoteKey { action: "straight"; text: "STRT"; on: root.straightOn; keyWidth: 92 }
-            RemoteKey { action: "program-7ch"; text: "7CH"; on: root.sevenOn; keyWidth: 92 }
-            RemoteKey { action: "pure-direct"; text: "PURE"; on: root.pureOn; keyWidth: 92 }
+            RemoteKey { action: "straight"; text: "STRT"; tooltipText: "Straight: Decodes audio without DSP processing"; on: root.straightOn; keyWidth: 92 }
+            RemoteKey { action: "program-7ch"; text: "7CH"; tooltipText: "7ch Stereo: All-channel stereo for wide sound"; on: root.sevenOn; keyWidth: 92 }
+            RemoteKey { action: "pure-direct"; text: "PURE"; tooltipText: "Pure Direct: Bypasses all DSP circuitry for purest hi-fi sound"; on: root.pureOn; keyWidth: 92 }
           }
 
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
-            RemoteKey { action: "power-on"; iconText: "󰐥"; text: "ON"; on: root.online; keyWidth: 92 }
-            RemoteKey { action: "power-off"; iconText: "󰤄"; text: "OFF"; on: !root.online; keyWidth: 92 }
-            RemoteKey { action: "mute"; iconText: root.muted ? "󰝟" : "󰕾"; text: "MUTE"; on: root.muted; keyWidth: 92 }
+            RemoteKey { action: "power-on"; iconText: "󰐥"; text: "ON"; tooltipText: "Power on the receiver"; on: root.online; keyWidth: 92 }
+            RemoteKey { action: "power-off"; iconText: "󰤄"; text: "OFF"; tooltipText: "Set receiver to standby"; on: !root.online; keyWidth: 92 }
+            RemoteKey { action: "mute"; iconText: root.muted ? "󰝟" : "󰕾"; text: "MUTE"; tooltipText: "Toggle mute"; on: root.muted; keyWidth: 92 }
           }
 
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
-            RemoteKey { action: "volume-down"; iconText: "󰕿"; text: "VOL−"; keyWidth: 142 }
-            RemoteKey { action: "volume-up"; iconText: "󰖀"; text: "VOL+"; keyWidth: 142 }
+            RemoteKey { action: "volume-down"; iconText: "󰕿"; text: "VOL−"; tooltipText: "Volume down 0.5 dB"; keyWidth: 142 }
+            RemoteKey { action: "volume-up"; iconText: "󰖀"; text: "VOL+"; tooltipText: "Volume up 0.5 dB"; keyWidth: 142 }
           }
 
           Row {
@@ -738,6 +759,7 @@ BarWidget {
               height: 38
               text: "AUDIO"
               iconText: "󰓃"
+              tooltipText: "Tone, Dialogue & DSP audio settings"
               foreground: root.foreground
               accent: root.accent
               fontFamily: root.fontFamily
@@ -751,6 +773,7 @@ BarWidget {
               height: 38
               text: "HOST"
               iconText: "󰒋"
+              tooltipText: "Configure receiver IP address and name"
               foreground: root.foreground
               accent: root.accent
               fontFamily: root.fontFamily
@@ -806,6 +829,7 @@ BarWidget {
 
           ToneRow {
             title: "BASS"
+            tooltipInfo: "Bass: 350 Hz shelving EQ (-6.0 dB to +6.0 dB)"
             displayValue: (root.bass || "+0.0") + " dB"
             actionDown: "bass-down"
             actionUp: "bass-up"
@@ -814,6 +838,7 @@ BarWidget {
 
           ToneRow {
             title: "TREBLE"
+            tooltipInfo: "Treble: 3.5 kHz shelving EQ (-6.0 dB to +6.0 dB)"
             displayValue: (root.treble || "+0.0") + " dB"
             actionDown: "treble-down"
             actionUp: "treble-up"
@@ -822,6 +847,7 @@ BarWidget {
 
           ToneRow {
             title: "SUB TRIM"
+            tooltipInfo: "Subwoofer Trim: Fine-tunes sub output (-6.0 dB to +6.0 dB)"
             displayValue: (root.subTrim || "+0.0") + " dB"
             actionDown: "subtrim-down"
             actionUp: "subtrim-up"
@@ -830,33 +856,73 @@ BarWidget {
 
           PanelSeparator { width: parent.width; foreground: root.foreground }
 
-          Text {
+          Item {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "DIALOGUE LEVEL"
-            textFormat: Text.PlainText
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
+            width: parent.width
+            height: lvlHeader.implicitHeight
+
+            Text {
+              id: lvlHeader
+              anchors.centerIn: parent
+              text: "DIALOGUE LEVEL"
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            MouseArea {
+              id: lvlHover
+              anchors.fill: parent
+              hoverEnabled: true
+            }
+
+            PanelToolTip {
+              visible: lvlHover.containsMouse
+              text: "Boosts vocal midrange frequencies to clarify speech without increasing volume"
+              panelForeground: root.foreground
+              fontFamily: root.fontFamily
+            }
           }
 
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
-            PillButton { text: "LV 0"; on: root.dialogueLvl === 0; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 0 }) }
-            PillButton { text: "LV 1"; on: root.dialogueLvl === 1; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 1 }) }
-            PillButton { text: "LV 2"; on: root.dialogueLvl === 2; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 2 }) }
-            PillButton { text: "LV 3"; on: root.dialogueLvl === 3; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 3 }) }
+            PillButton { text: "LV 0"; tooltipText: "Dialogue Level Off (standard mix)"; on: root.dialogueLvl === 0; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 0 }) }
+            PillButton { text: "LV 1"; tooltipText: "Dialogue Level 1 (mild vocal boost)"; on: root.dialogueLvl === 1; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 1 }) }
+            PillButton { text: "LV 2"; tooltipText: "Dialogue Level 2 (medium vocal boost)"; on: root.dialogueLvl === 2; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 2 }) }
+            PillButton { text: "LV 3"; tooltipText: "Dialogue Level 3 (maximum vocal boost)"; on: root.dialogueLvl === 3; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 3 }) }
           }
 
-          Text {
+          Item {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "DIALOGUE LIFT"
-            textFormat: Text.PlainText
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
+            width: parent.width
+            height: liftHeader.implicitHeight
+
+            Text {
+              id: liftHeader
+              anchors.centerIn: parent
+              text: "DIALOGUE LIFT"
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            MouseArea {
+              id: liftHover
+              anchors.fill: parent
+              hoverEnabled: true
+            }
+
+            PanelToolTip {
+              visible: liftHover.containsMouse
+              text: "Uses front presence speakers to raise dialogue vertically toward the screen center"
+              panelForeground: root.foreground
+              fontFamily: root.fontFamily
+            }
           }
 
           Row {
@@ -867,6 +933,7 @@ BarWidget {
               PillButton {
                 required property int index
                 text: String(index)
+                tooltipText: index === 0 ? "Dialogue Lift Off (normal height)" : ("Dialogue Lift " + index + "/5 (elevate dialogue)")
                 on: root.dialogueLift === index
                 pillWidth: 44
                 onClicked: {
@@ -892,16 +959,16 @@ BarWidget {
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
-            RemoteKey { action: "extra-bass-toggle"; text: "EX BASS"; on: root.extraBassOn; keyWidth: 92 }
-            RemoteKey { action: "ypao-volume-toggle"; text: "YPAO VOL"; on: root.ypaoVolOn; keyWidth: 92 }
-            RemoteKey { action: "adaptive-drc-toggle"; text: "A-DRC"; on: root.adaptDrcOn; keyWidth: 92 }
+            RemoteKey { action: "extra-bass-toggle"; text: "EX BASS"; tooltipText: "Extra Bass: Boosts bass for front speakers & sub"; on: root.extraBassOn; keyWidth: 92 }
+            RemoteKey { action: "ypao-volume-toggle"; text: "YPAO VOL"; tooltipText: "YPAO Volume: Dynamic loudness curve at low volumes"; on: root.ypaoVolOn; keyWidth: 92 }
+            RemoteKey { action: "adaptive-drc-toggle"; text: "A-DRC"; tooltipText: "Adaptive DRC: Compresses dynamic range for night listening"; on: root.adaptDrcOn; keyWidth: 92 }
           }
 
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
-            RemoteKey { action: "enhancer-toggle"; text: "ENHANCER"; on: root.enhancerOn; keyWidth: 142 }
-            RemoteKey { action: "cinema3d-toggle"; text: "CINEMA 3D"; on: root.cinema3dOn; keyWidth: 142 }
+            RemoteKey { action: "enhancer-toggle"; text: "ENHANCER"; tooltipText: "Music Enhancer: Regenerates lost harmonics in compressed audio"; on: root.enhancerOn; keyWidth: 142 }
+            RemoteKey { action: "cinema3d-toggle"; text: "CINEMA 3D"; tooltipText: "Cinema DSP 3D: Generates 3D height soundfield"; on: root.cinema3dOn; keyWidth: 142 }
           }
 
           Button {
@@ -910,6 +977,7 @@ BarWidget {
             height: 38
             text: "BACK"
             iconText: "󰁍"
+            tooltipText: "Return to remote control"
             foreground: root.foreground
             accent: root.accent
             fontFamily: root.fontFamily
