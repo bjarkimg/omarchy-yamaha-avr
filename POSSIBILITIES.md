@@ -6,7 +6,7 @@ These features are documented for future reference and expansion.
 
 ---
 
-## 1. Advanced Audio & Tone Controls (Implemented in v1.0.3)
+## 1. Advanced Audio & Tone Controls (Implemented in v1.0.4)
 - **Tone Control (Bass / Treble)**:
   - Range: `-6.0 dB` to `+6.0 dB` in `0.5 dB` steps (`-60..+60` in tenths of dB)
   - Fixed turnover frequencies: Bass at `350 Hz`, Treble at `3.5 kHz`
