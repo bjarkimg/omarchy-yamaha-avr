@@ -22,6 +22,7 @@ BarWidget {
   property string inputSel: ""
   property string program: ""
   property string volumeLabel: ""
+  property real volumeDb: -50.0
   property bool straightOn: false
   property bool pureOn: false
   property bool sevenOn: false
@@ -85,10 +86,13 @@ BarWidget {
       dialogueLift = Math.max(0, Math.min(5, Number(message.dialogueLift)))
     if (!seatBusy && message.lrBalance !== undefined && message.lrBalance !== null && message.lrBalance !== "")
       lrBalance = Math.max(-5, Math.min(5, Number(message.lrBalance)))
-    if (message.volumeDb !== undefined && message.volumeDb !== null && message.volumeDb !== "")
+    if (message.volumeDb !== undefined && message.volumeDb !== null && message.volumeDb !== "") {
+      volumeDb = Number(message.volumeDb)
       volumeLabel = Number(message.volumeDb).toFixed(1) + " dB"
-    else if (message.volume !== undefined && message.volume !== null && message.volume !== "" && message.volume !== "--")
+    } else if (message.volume !== undefined && message.volume !== null && message.volume !== "" && message.volume !== "--") {
+      volumeDb = Number(message.volume)
       volumeLabel = String(message.volume) + " dB"
+    }
     online = String(message.power || "").toLowerCase() === "on" || Boolean(message.connected)
     if (String(message.status) === "standby" || String(message.power || "").toLowerCase() === "standby") {
       online = false
@@ -729,6 +733,47 @@ BarWidget {
             spacing: Style.space(7)
             RemoteKey { action: "volume-down"; iconText: "󰕿"; text: "VOL−"; tooltipText: "Volume down 0.5 dB"; keyWidth: 142 }
             RemoteKey { action: "volume-up"; iconText: "󰖀"; text: "VOL+"; tooltipText: "Volume up 0.5 dB"; keyWidth: 142 }
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(7)
+            RemoteKey {
+              action: "vol-60"
+              keyWidth: 67
+              keyHeight: 32
+              fontSize: Style.font.caption
+              text: "-60 dB"
+              tooltipText: "Preset -60.0 dB (Night / Minimum)"
+              on: Math.abs(root.volumeDb - (-60.0)) <= 0.5
+            }
+            RemoteKey {
+              action: "vol-50"
+              keyWidth: 67
+              keyHeight: 32
+              fontSize: Style.font.caption
+              text: "-50 dB"
+              tooltipText: "Preset -50.0 dB (Quiet listening)"
+              on: Math.abs(root.volumeDb - (-50.0)) <= 0.5
+            }
+            RemoteKey {
+              action: "vol-45"
+              keyWidth: 67
+              keyHeight: 32
+              fontSize: Style.font.caption
+              text: "-45 dB"
+              tooltipText: "Preset -45.0 dB (Low / Daytime TV)"
+              on: Math.abs(root.volumeDb - (-45.0)) <= 0.5
+            }
+            RemoteKey {
+              action: "vol-40"
+              keyWidth: 67
+              keyHeight: 32
+              fontSize: Style.font.caption
+              text: "-40 dB"
+              tooltipText: "Preset -40.0 dB (Normal / Movies)"
+              on: Math.abs(root.volumeDb - (-40.0)) <= 0.5
+            }
           }
 
           Row {

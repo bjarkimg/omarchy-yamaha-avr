@@ -505,6 +505,16 @@ class YamahaSession:
             if self.volume_db is not None:
                 new_vol = int(round((self.volume_db - 0.5) * 10))
                 self.post("PUT", f"<Main_Zone><Volume><Lvl><Val>{new_vol}</Val><Exp>1</Exp><Unit>dB</Unit></Lvl></Volume></Main_Zone>")
+        elif action.startswith("vol-") or action.startswith("volume-set-"):
+            num_str = action.split("-")[-1]
+            if re.fullmatch(r"-?\d+(\.\d+)?", num_str):
+                val = float(num_str)
+                if val > 0:
+                    val = -val
+                val = max(-80.5, min(16.5, val))
+                exp_val = int(round(val * 10))
+                self.post("PUT", f"<Main_Zone><Volume><Lvl><Val>{exp_val}</Val><Exp>1</Exp><Unit>dB</Unit></Lvl></Volume></Main_Zone>")
+                self.volume_db = val
         elif action.startswith("input-"):
             inp = action[6:].upper()
             mapping = {
@@ -694,6 +704,20 @@ class YamahaSession:
                 "</Subwoofer_Trim></Volume></Main_Zone>",
             )
             self.subwoofer_trim = val
+            self.refresh()
+            emit("result", action=operation, result=str(val), **self.status_payload())
+            return
+        if operation in {"set-volume", "volume-set"}:
+            val = float(request.get("value", -50.0))
+            if val > 0:
+                val = -val
+            val = max(-80.5, min(16.5, val))
+            exp_val = int(round(val * 10))
+            self.post(
+                "PUT",
+                f"<Main_Zone><Volume><Lvl><Val>{exp_val}</Val><Exp>1</Exp><Unit>dB</Unit></Lvl></Volume></Main_Zone>",
+            )
+            self.volume_db = val
             self.refresh()
             emit("result", action=operation, result=str(val), **self.status_payload())
             return
