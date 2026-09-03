@@ -49,6 +49,11 @@ YNCA; this plugin only uses that older API.
     Center of the map is the receiver's current calibration (YPAO). Dragging
     back to the middle restores it.
   - **Front / back** is Dialogue Lift (0–5)
+- Dedicated **Audio Controls** view:
+  - **Bass & Treble** tone controls (-6.0 dB to +6.0 dB in 0.5 dB steps) with quick 0 dB reset
+  - **Subwoofer Trim** (-6.0 dB to +6.0 dB in 0.5 dB steps) with quick 0 dB reset
+  - **Dialogue Level** (0–3) and **Dialogue Lift** (0–5) selectors
+  - **DSP Processing toggles**: Extra Bass, YPAO Volume, Adaptive DRC, Enhancer, and Cinema DSP 3D
 
 ## Requirements
 
@@ -82,12 +87,15 @@ name is read from the box after the first successful GET.
 | S | Straight |
 | 7 | 7ch Stereo |
 | U | Pure Direct |
-| D | Receiver host |
-| Q or Escape | Close |
+| A | Audio controls view |
+| D | Receiver host settings |
+| B | Back to remote (from Audio or Host view) |
+| Q or Escape | Close / Back |
 
 - **Bar chip (AV):** Left-click opens/closes the panel. Right-click or middle-click toggles power directly.
 - **Remote buttons:** Dedicated **ON**, **OFF**, and **MUTE** buttons with active state highlights.
 - **Seat map:** Drag the sofa on the 7.1 map for seat position (L/R tilt and Dialogue Lift).
+- **Audio view:** Steppers for Bass/Treble/Sub Trim, Dialogue level/lift pills, and toggles for Extra Bass, YPAO Volume, Adaptive DRC, Enhancer, and Cinema DSP 3D.
 
 ## Update
 

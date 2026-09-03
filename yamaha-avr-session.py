@@ -266,6 +266,12 @@ class YamahaSession:
         self.cinema_3d = "Off"
         self.dialogue_lift = 0
         self.dialogue_lvl = 0
+        self.bass = 0
+        self.treble = 0
+        self.subwoofer_trim = 0
+        self.extra_bass = "Off"
+        self.ypao_volume = "Off"
+        self.adaptive_drc = "Off"
         self.lr_balance = 0
         self.speaker_levels: dict[str, int] = {}
         self.seat_baseline: dict[str, int] = {}
@@ -353,6 +359,22 @@ class YamahaSession:
             self.dialogue_lift = max(0, min(5, int(lift)))
         if level is not None and re.fullmatch(r"-?\d+", level):
             self.dialogue_lvl = max(0, min(3, int(level)))
+        # Tone & Subwoofer Trim
+        bass_val = root.findtext(".//Tone/Bass/Val")
+        if bass_val is not None and re.fullmatch(r"-?\d+", bass_val):
+            self.bass = max(-60, min(60, int(bass_val)))
+        treble_val = root.findtext(".//Tone/Treble/Val")
+        if treble_val is not None and re.fullmatch(r"-?\d+", treble_val):
+            self.treble = max(-60, min(60, int(treble_val)))
+        subtrim_val = root.findtext(".//Subwoofer_Trim/Val")
+        if subtrim_val is not None and re.fullmatch(r"-?\d+", subtrim_val):
+            self.subwoofer_trim = max(-60, min(60, int(subtrim_val)))
+
+        # DSP Processing Toggles
+        self.extra_bass = sanitize_text(root.findtext(".//Extra_Bass") or self.extra_bass, 16)
+        self.ypao_volume = sanitize_text(root.findtext(".//YPAO_Volume") or self.ypao_volume, 16)
+        self.adaptive_drc = sanitize_text(root.findtext(".//Adaptive_DRC") or self.adaptive_drc, 16)
+
         if val is not None and re.fullmatch(r"-?\d+", val):
             self.volume_db = int(val) / (10 ** int(exp or "1"))
         else:
@@ -449,6 +471,15 @@ class YamahaSession:
             "dialogueLift": self.dialogue_lift,
             "dialogueLvl": self.dialogue_lvl,
             "lrBalance": self.lr_balance,
+            "bass": f"{self.bass / 10:+.1f}",
+            "bassVal": self.bass,
+            "treble": f"{self.treble / 10:+.1f}",
+            "trebleVal": self.treble,
+            "subTrim": f"{self.subwoofer_trim / 10:+.1f}",
+            "subTrimVal": self.subwoofer_trim,
+            "extraBass": self.extra_bass,
+            "ypaoVolume": self.ypao_volume,
+            "adaptiveDrc": self.adaptive_drc,
             "connected": self.connected,
         }
 
@@ -516,10 +547,12 @@ class YamahaSession:
             self.post("PUT", f"<Main_Zone><Surround><Program_Sel><Current><Sound_Program>{prog_name}</Sound_Program></Current></Program_Sel></Surround></Main_Zone>")
         elif action == "enhancer-toggle":
             target = "Off" if self.enhancer == "On" else "On"
-            self.post("PUT", f"<Main_Zone><Sound_Video><Enhancer>{target}</Enhancer></Sound_Video></Main_Zone>")
+            self.post("PUT", f"<Main_Zone><Surround><Program_Sel><Current><Enhancer>{target}</Enhancer></Current></Program_Sel></Surround></Main_Zone>")
+            self.enhancer = target
         elif action == "cinema3d-toggle":
-            target = "Off" if self.cinema_3d == "On" else "Auto"
+            target = "Off" if self.cinema_3d in {"Auto", "On"} else "Auto"
             self.post("PUT", f"<Main_Zone><Surround><_3D_Cinema_DSP>{target}</_3D_Cinema_DSP></Surround></Main_Zone>")
+            self.cinema_3d = target
         elif action == "dialogue-lift-up":
             target_lift = min(5, self.dialogue_lift + 1)
             self.post("PUT", f"<Main_Zone><Sound_Video><Dialogue_Adjust><Dialogue_Lift>{target_lift}</Dialogue_Lift></Dialogue_Adjust></Sound_Video></Main_Zone>")
@@ -532,6 +565,33 @@ class YamahaSession:
         elif action == "dialogue-lvl-down":
             target_lvl = max(0, self.dialogue_lvl - 1)
             self.post("PUT", f"<Main_Zone><Sound_Video><Dialogue_Adjust><Dialogue_Lvl>{target_lvl}</Dialogue_Lvl></Dialogue_Adjust></Sound_Video></Main_Zone>")
+        elif action in {"bass-up", "bass-down"}:
+            delta = 5 if action == "bass-up" else -5
+            target = max(-60, min(60, self.bass + delta))
+            self.post("PUT", f"<Main_Zone><Sound_Video><Tone><Bass><Val>{target}</Val><Exp>1</Exp><Unit>dB</Unit></Bass></Tone></Sound_Video></Main_Zone>")
+            self.bass = target
+        elif action in {"treble-up", "treble-down"}:
+            delta = 5 if action == "treble-up" else -5
+            target = max(-60, min(60, self.treble + delta))
+            self.post("PUT", f"<Main_Zone><Sound_Video><Tone><Treble><Val>{target}</Val><Exp>1</Exp><Unit>dB</Unit></Treble></Tone></Sound_Video></Main_Zone>")
+            self.treble = target
+        elif action in {"subtrim-up", "subtrim-down", "sub-up", "sub-down"}:
+            delta = 5 if "up" in action else -5
+            target = max(-60, min(60, self.subwoofer_trim + delta))
+            self.post("PUT", f"<Main_Zone><Volume><Subwoofer_Trim><Val>{target}</Val><Exp>1</Exp><Unit>dB</Unit></Subwoofer_Trim></Volume></Main_Zone>")
+            self.subwoofer_trim = target
+        elif action in {"extra-bass-toggle", "extrabass-toggle", "extra-bass"}:
+            target = "Off" if self.extra_bass == "Auto" else "Auto"
+            self.post("PUT", f"<Main_Zone><Sound_Video><Extra_Bass>{target}</Extra_Bass></Sound_Video></Main_Zone>")
+            self.extra_bass = target
+        elif action in {"ypao-volume-toggle", "ypao-vol-toggle", "ypaovol-toggle", "ypao-vol"}:
+            target = "Off" if self.ypao_volume == "Auto" else "Auto"
+            self.post("PUT", f"<Main_Zone><Sound_Video><YPAO_Volume>{target}</YPAO_Volume></Sound_Video></Main_Zone>")
+            self.ypao_volume = target
+        elif action in {"adaptive-drc-toggle", "adaptivedrc-toggle", "adaptive-drc"}:
+            target = "Off" if self.adaptive_drc == "Auto" else "Auto"
+            self.post("PUT", f"<Main_Zone><Sound_Video><Adaptive_DRC>{target}</Adaptive_DRC></Sound_Video></Main_Zone>")
+            self.adaptive_drc = target
         elif action == "seat-left":
             self._set_lr_balance(self.lr_balance - 1)
         elif action == "seat-right":
@@ -576,6 +636,66 @@ class YamahaSession:
             self._set_lr_balance(x)
             self.refresh()
             emit("result", action=operation, result=f"{x},{y}", **self.status_payload())
+            return
+        if operation == "set-dialogue-lvl":
+            lvl = max(0, min(3, int(request.get("value", 0))))
+            self.post(
+                "PUT",
+                "<Main_Zone><Sound_Video><Dialogue_Adjust>"
+                f"<Dialogue_Lvl>{lvl}</Dialogue_Lvl>"
+                "</Dialogue_Adjust></Sound_Video></Main_Zone>",
+            )
+            self.dialogue_lvl = lvl
+            self.refresh()
+            emit("result", action=operation, result=str(lvl), **self.status_payload())
+            return
+        if operation == "set-dialogue-lift":
+            lift = max(0, min(5, int(request.get("value", 0))))
+            self.post(
+                "PUT",
+                "<Main_Zone><Sound_Video><Dialogue_Adjust>"
+                f"<Dialogue_Lift>{lift}</Dialogue_Lift>"
+                "</Dialogue_Adjust></Sound_Video></Main_Zone>",
+            )
+            self.dialogue_lift = lift
+            self.refresh()
+            emit("result", action=operation, result=str(lift), **self.status_payload())
+            return
+        if operation == "set-bass":
+            val = max(-60, min(60, int(request.get("value", 0))))
+            self.post(
+                "PUT",
+                "<Main_Zone><Sound_Video><Tone><Bass>"
+                f"<Val>{val}</Val><Exp>1</Exp><Unit>dB</Unit>"
+                "</Bass></Tone></Sound_Video></Main_Zone>",
+            )
+            self.bass = val
+            self.refresh()
+            emit("result", action=operation, result=str(val), **self.status_payload())
+            return
+        if operation == "set-treble":
+            val = max(-60, min(60, int(request.get("value", 0))))
+            self.post(
+                "PUT",
+                "<Main_Zone><Sound_Video><Tone><Treble>"
+                f"<Val>{val}</Val><Exp>1</Exp><Unit>dB</Unit>"
+                "</Treble></Tone></Sound_Video></Main_Zone>",
+            )
+            self.treble = val
+            self.refresh()
+            emit("result", action=operation, result=str(val), **self.status_payload())
+            return
+        if operation == "set-subtrim":
+            val = max(-60, min(60, int(request.get("value", 0))))
+            self.post(
+                "PUT",
+                "<Main_Zone><Volume><Subwoofer_Trim>"
+                f"<Val>{val}</Val><Exp>1</Exp><Unit>dB</Unit>"
+                "</Subwoofer_Trim></Volume></Main_Zone>",
+            )
+            self.subwoofer_trim = val
+            self.refresh()
+            emit("result", action=operation, result=str(val), **self.status_payload())
             return
         if operation == "set-host":
             host = str(request.get("host", "")).strip()[:128]

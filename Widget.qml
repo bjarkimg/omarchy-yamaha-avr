@@ -29,6 +29,18 @@ BarWidget {
   property int lrBalance: 0
   property bool seatBusy: false
   property var actionQueue: []
+  property string bass: "+0.0"
+  property int bassVal: 0
+  property string treble: "+0.0"
+  property int trebleVal: 0
+  property string subTrim: "+0.0"
+  property int subTrimVal: 0
+  property bool extraBassOn: false
+  property bool ypaoVolOn: false
+  property bool adaptDrcOn: false
+  property bool enhancerOn: false
+  property bool cinema3dOn: false
+  property int dialogueLvl: 0
 
   readonly property string deviceName: String(setting("deviceName", "Yamaha AVR"))
   readonly property string host: String(setting("host", ""))
@@ -56,6 +68,19 @@ BarWidget {
     pureOn = String(message.pureDirect || "").toLowerCase() === "on"
     straightOn = String(message.straight || "").toLowerCase() === "on" && !pureOn
     sevenOn = String(program).indexOf("7ch") >= 0 && !straightOn && !pureOn
+    if (message.bass !== undefined && message.bass !== null && message.bass !== "") bass = String(message.bass)
+    if (message.bassVal !== undefined && message.bassVal !== null && message.bassVal !== "") bassVal = Number(message.bassVal)
+    if (message.treble !== undefined && message.treble !== null && message.treble !== "") treble = String(message.treble)
+    if (message.trebleVal !== undefined && message.trebleVal !== null && message.trebleVal !== "") trebleVal = Number(message.trebleVal)
+    if (message.subTrim !== undefined && message.subTrim !== null && message.subTrim !== "") subTrim = String(message.subTrim)
+    if (message.subTrimVal !== undefined && message.subTrimVal !== null && message.subTrimVal !== "") subTrimVal = Number(message.subTrimVal)
+    extraBassOn = String(message.extraBass || "").toLowerCase() === "auto"
+    ypaoVolOn = String(message.ypaoVolume || "").toLowerCase() === "auto"
+    adaptDrcOn = String(message.adaptiveDrc || "").toLowerCase() === "auto"
+    enhancerOn = String(message.enhancer || "").toLowerCase() === "on"
+    cinema3dOn = String(message.cinema3d || "").toLowerCase() === "auto" || String(message.cinema3d || "").toLowerCase() === "on"
+    if (message.dialogueLvl !== undefined && message.dialogueLvl !== null && message.dialogueLvl !== "")
+      dialogueLvl = Math.max(0, Math.min(3, Number(message.dialogueLvl)))
     if (!seatBusy && message.dialogueLift !== undefined && message.dialogueLift !== null && message.dialogueLift !== "")
       dialogueLift = Math.max(0, Math.min(5, Number(message.dialogueLift)))
     if (!seatBusy && message.lrBalance !== undefined && message.lrBalance !== null && message.lrBalance !== "")
@@ -139,8 +164,16 @@ BarWidget {
 
   function handleTextKey(text) {
     var key = String(text || "").toLowerCase()
-    if (viewMode === "devices") {
+    if (viewMode === "devices" || viewMode === "audio") {
       if (key === "b" || key === "q") { viewMode = "remote"; return }
+      if (viewMode === "audio") {
+        if (key === "e") sendAction("extra-bass-toggle")
+        else if (key === "y") sendAction("ypao-volume-toggle")
+        else if (key === "d") sendAction("adaptive-drc-toggle")
+        else if (key === "h") sendAction("enhancer-toggle")
+        else if (key === "c") sendAction("cinema3d-toggle")
+        return
+      }
       return
     }
     if (key === "p") sendAction("power")
@@ -157,6 +190,7 @@ BarWidget {
     else if (key === "s") sendAction("straight")
     else if (key === "u") sendAction("pure-direct")
     else if (key === "7") sendAction("program-7ch")
+    else if (key === "a") viewMode = "audio"
     else if (key === "d") {
       hostInput.text = root.activeHost
       nameInput.text = root.activeName
@@ -250,6 +284,92 @@ BarWidget {
     onClicked: root.sendAction(action)
   }
 
+  component ToneRow: Row {
+    id: toneRow
+    property string title: ""
+    property string displayValue: "+0.0 dB"
+    property string actionDown: ""
+    property string actionUp: ""
+    property string setOp: ""
+    anchors.horizontalCenter: parent.horizontalCenter
+    spacing: Style.space(6)
+
+    Text {
+      width: 70
+      height: 34
+      verticalAlignment: Text.AlignVCenter
+      text: toneRow.title
+      textFormat: Text.PlainText
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      font.bold: true
+    }
+
+    Button {
+      width: 42
+      height: 34
+      text: "−"
+      foreground: root.foreground
+      accent: root.accent
+      fontFamily: root.fontFamily
+      fontSize: Style.font.bodySmall
+      bordered: true
+      onClicked: root.sendAction(toneRow.actionDown)
+    }
+
+    Text {
+      width: 65
+      height: 34
+      horizontalAlignment: Text.AlignHCenter
+      verticalAlignment: Text.AlignVCenter
+      text: toneRow.displayValue
+      textFormat: Text.PlainText
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      font.bold: true
+    }
+
+    Button {
+      width: 42
+      height: 34
+      text: "+"
+      foreground: root.foreground
+      accent: root.accent
+      fontFamily: root.fontFamily
+      fontSize: Style.font.bodySmall
+      bordered: true
+      onClicked: root.sendAction(toneRow.actionUp)
+    }
+
+    Button {
+      width: 42
+      height: 34
+      text: "0"
+      foreground: root.dim
+      accent: root.accent
+      fontFamily: root.fontFamily
+      fontSize: Style.font.caption
+      bordered: true
+      onClicked: root.sendRequest({ "op": toneRow.setOp, "value": 0 })
+    }
+  }
+
+  component PillButton: Button {
+    property bool on: false
+    property real pillWidth: 67
+    property real pillHeight: 32
+    width: pillWidth
+    height: pillHeight
+    selected: on
+    foreground: root.foreground
+    accent: root.accent
+    fontFamily: root.fontFamily
+    fontSize: Style.font.caption
+    bordered: true
+  }
+
   Item {
     id: button
     anchors.fill: parent
@@ -327,7 +447,7 @@ BarWidget {
               font.bold: true
             }
             Text {
-              text: root.viewMode === "remote" ? "YAMAHA AVR" : "RECEIVER HOST"
+              text: root.viewMode === "remote" ? "YAMAHA AVR" : (root.viewMode === "audio" ? "AUDIO CONTROLS" : "RECEIVER HOST")
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
@@ -609,21 +729,38 @@ BarWidget {
             RemoteKey { action: "scene-4"; text: "SC4"; keyWidth: 68 }
           }
 
-          Button {
+          Row {
             anchors.horizontalCenter: parent.horizontalCenter
-            width: 291
-            height: 38
-            text: "HOST"
-            iconText: "󰒋"
-            foreground: root.foreground
-            accent: root.accent
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
-            bordered: true
-            onClicked: {
-              hostInput.text = root.activeHost
-              nameInput.text = root.activeName
-              root.viewMode = "devices"
+            spacing: Style.space(7)
+
+            Button {
+              width: 142
+              height: 38
+              text: "AUDIO"
+              iconText: "󰓃"
+              foreground: root.foreground
+              accent: root.accent
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              bordered: true
+              onClicked: root.viewMode = "audio"
+            }
+
+            Button {
+              width: 142
+              height: 38
+              text: "HOST"
+              iconText: "󰒋"
+              foreground: root.foreground
+              accent: root.accent
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              bordered: true
+              onClicked: {
+                hostInput.text = root.activeHost
+                nameInput.text = root.activeName
+                root.viewMode = "devices"
+              }
             }
           }
 
@@ -644,7 +781,149 @@ BarWidget {
             width: parent.width
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
-            text: "[O] ON  [X] OFF  [P] PWR  [S] STRT  [7] 7CH  [U] PURE"
+            text: "[A] AUDIO  [D] HOST  [S] STRT  [7] 7CH  [U] PURE"
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        Column {
+          visible: root.viewMode === "audio"
+          width: parent.width
+          spacing: Style.space(8)
+
+          Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "TONE & SUBWOOFER"
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
+          ToneRow {
+            title: "BASS"
+            displayValue: (root.bass || "+0.0") + " dB"
+            actionDown: "bass-down"
+            actionUp: "bass-up"
+            setOp: "set-bass"
+          }
+
+          ToneRow {
+            title: "TREBLE"
+            displayValue: (root.treble || "+0.0") + " dB"
+            actionDown: "treble-down"
+            actionUp: "treble-up"
+            setOp: "set-treble"
+          }
+
+          ToneRow {
+            title: "SUB TRIM"
+            displayValue: (root.subTrim || "+0.0") + " dB"
+            actionDown: "subtrim-down"
+            actionUp: "subtrim-up"
+            setOp: "set-subtrim"
+          }
+
+          PanelSeparator { width: parent.width; foreground: root.foreground }
+
+          Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "DIALOGUE LEVEL"
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(7)
+            PillButton { text: "LV 0"; on: root.dialogueLvl === 0; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 0 }) }
+            PillButton { text: "LV 1"; on: root.dialogueLvl === 1; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 1 }) }
+            PillButton { text: "LV 2"; on: root.dialogueLvl === 2; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 2 }) }
+            PillButton { text: "LV 3"; on: root.dialogueLvl === 3; pillWidth: 67; onClicked: root.sendRequest({ "op": "set-dialogue-lvl", "value": 3 }) }
+          }
+
+          Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "DIALOGUE LIFT"
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(5)
+            Repeater {
+              model: 6
+              PillButton {
+                required property int index
+                text: String(index)
+                on: root.dialogueLift === index
+                pillWidth: 44
+                onClicked: {
+                  root.dialogueLift = index
+                  root.sendRequest({ "op": "set-dialogue-lift", "value": index })
+                }
+              }
+            }
+          }
+
+          PanelSeparator { width: parent.width; foreground: root.foreground }
+
+          Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "DSP & ENHANCEMENT"
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(7)
+            RemoteKey { action: "extra-bass-toggle"; text: "EX BASS"; on: root.extraBassOn; keyWidth: 92 }
+            RemoteKey { action: "ypao-volume-toggle"; text: "YPAO VOL"; on: root.ypaoVolOn; keyWidth: 92 }
+            RemoteKey { action: "adaptive-drc-toggle"; text: "A-DRC"; on: root.adaptDrcOn; keyWidth: 92 }
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(7)
+            RemoteKey { action: "enhancer-toggle"; text: "ENHANCER"; on: root.enhancerOn; keyWidth: 142 }
+            RemoteKey { action: "cinema3d-toggle"; text: "CINEMA 3D"; on: root.cinema3dOn; keyWidth: 142 }
+          }
+
+          Button {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 291
+            height: 38
+            text: "BACK"
+            iconText: "󰁍"
+            foreground: root.foreground
+            accent: root.accent
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            bordered: true
+            onClicked: root.viewMode = "remote"
+          }
+
+          Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            wrapMode: Text.Wrap
+            horizontalAlignment: Text.AlignHCenter
+            text: "[B] BACK  [E] EX BASS  [Y] YPAO  [D] DRC  [H] ENH"
             textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
