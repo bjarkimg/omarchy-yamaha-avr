@@ -127,10 +127,13 @@ BarWidget {
     if (message.event === "error") {
       online = Boolean(message.connected)
       processError = String(message.message || "")
-      statusText = "OFFLINE"
+      if (!online) {
+        statusText = "OFFLINE"
+      }
       return
     }
     if (message.event !== "result") return
+    processError = ""
     applyStatus(message)
   }
 

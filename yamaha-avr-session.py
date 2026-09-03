@@ -549,7 +549,7 @@ class YamahaSession:
 
     def handle_request(self, request: dict[str, Any]) -> None:
         operation = str(request.get("op", ""))[:32]
-        if operation == "seat-pos":
+        if operation in {"seat", "seat-pos"}:
             x = int(request.get("x", 0))
             y = int(request.get("y", 0))
             x = max(-10, min(10, x))
