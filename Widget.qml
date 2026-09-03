@@ -177,6 +177,12 @@ BarWidget {
   Process {
     id: sessionProcess
     command: [root.remotePath, "--host", root.host, "--name", root.deviceName, "session"]
+    environment: ({
+      "PATH": "/usr/bin:/bin",
+      "HOME": Quickshell.env("HOME") || "",
+      "XDG_STATE_HOME": Quickshell.env("XDG_STATE_HOME") || "",
+      "LC_ALL": "C.UTF-8"
+    })
     stdinEnabled: true
     running: true
     stdout: SplitParser {
@@ -240,6 +246,7 @@ BarWidget {
     Text {
       anchors.centerIn: parent
       text: "AV"
+      textFormat: Text.PlainText
       color: root.online ? root.foreground : root.dim
       font.family: "sans-serif"
       font.pixelSize: Style.font.bodySmall
@@ -300,6 +307,7 @@ BarWidget {
             spacing: Style.space(1)
             Text {
               text: root.activeName.toUpperCase()
+              textFormat: Text.PlainText
               color: root.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.subtitle
@@ -307,6 +315,7 @@ BarWidget {
             }
             Text {
               text: root.viewMode === "remote" ? "YAMAHA AVR" : "RECEIVER HOST"
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -317,6 +326,7 @@ BarWidget {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: (root.online ? "● " : "○ ") + root.statusText
+            textFormat: Text.PlainText
             color: root.online ? root.foreground : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -337,6 +347,7 @@ BarWidget {
             text: (root.muted ? "MUTE  ·  " : "") + (root.volumeLabel || "—")
               + (root.inputSel ? "  ·  " + root.inputSel : "")
               + (root.program ? "  ·  " + root.program : "")
+            textFormat: Text.PlainText
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -442,6 +453,7 @@ BarWidget {
               anchors.horizontalCenter: parent.horizontalCenter
               y: 22
               text: "SCREEN"
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -473,6 +485,7 @@ BarWidget {
                   anchors.top: parent.bottom
                   anchors.topMargin: 2
                   text: tag
+                  textFormat: Text.PlainText
                   color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
@@ -535,6 +548,7 @@ BarWidget {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             text: "7.1  ·  L/R " + (root.lrBalance > 0 ? "+" : "") + root.lrBalance + "  ·  F/R " + root.dialogueLift + "/5"
+            textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -604,6 +618,7 @@ BarWidget {
             visible: root.processError !== ""
             width: parent.width
             text: root.processError
+            textFormat: Text.PlainText
             color: root.accent
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
@@ -617,6 +632,7 @@ BarWidget {
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
             text: "[O] ON  [X] OFF  [P] PWR  [S] STRT  [7] 7CH  [U] PURE"
+            textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

@@ -90,20 +90,78 @@ def resolve_and_validate_lan_ip(host: str) -> str:
     return ip_str
 
 
-def get_secure_settings_dir() -> Path:
-    state_home = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
-    settings_dir = state_home / "omarchy" / "settings"
-    os.makedirs(settings_dir, mode=0o700, exist_ok=True)
-    return settings_dir
+def sanitize_text(text: Any, max_len: int = 64) -> str:
+    """Sanitize string to printable characters and enforce length ceiling."""
+    if text is None:
+        return ""
+    cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(text)).strip()
+    return cleaned[:max_len]
+
+
+def open_secure_settings_dir() -> int:
+    """Open settings directory via descriptor-bound path walking with owner and mode validation."""
+    state_home = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+    target_path = os.path.normpath(os.path.abspath(os.path.join(state_home, "omarchy", "settings")))
+    parts = [p for p in target_path.split(os.sep) if p]
+    if not parts:
+        raise ValueError("Invalid settings directory path")
+
+    uid = os.getuid()
+    cur_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        user_seen = False
+        for part in parts:
+            try:
+                next_fd = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                    dir_fd=cur_fd,
+                )
+            except FileNotFoundError:
+                os.mkdir(part, 0o700, dir_fd=cur_fd)
+                next_fd = os.open(
+                    part,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                    dir_fd=cur_fd,
+                )
+
+            os.close(cur_fd)
+            cur_fd = next_fd
+
+            st = os.fstat(cur_fd)
+            if not stat.S_ISDIR(st.st_mode):
+                raise PermissionError(f"Path segment {part} is not a directory")
+
+            if st.st_uid == uid:
+                user_seen = True
+            elif user_seen or st.st_uid != 0:
+                raise PermissionError(f"Directory {part} owner mismatch: {st.st_uid} != {uid}")
+
+        st = os.fstat(cur_fd)
+        if st.st_uid != uid:
+            raise PermissionError("Settings directory owner mismatch")
+        try:
+            os.fchmod(cur_fd, 0o700)
+        except OSError:
+            pass
+
+        st = os.fstat(cur_fd)
+        if (st.st_mode & 0o077) != 0:
+            raise PermissionError("Settings directory permissions too permissive")
+
+        return cur_fd
+    except Exception:
+        if cur_fd >= 0:
+            os.close(cur_fd)
+        raise
 
 
 def safe_load_state(filename: str = "yamaha-avr.json") -> dict[str, Any]:
-    """Read state with descriptor-bound directory access and size checks."""
-    settings_dir = get_secure_settings_dir()
+    """Read state with descriptor-bound directory access, no-follow, and size checks."""
     dir_fd = -1
     fd = -1
     try:
-        dir_fd = os.open(str(settings_dir), os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        dir_fd = open_secure_settings_dir()
         try:
             fd = os.open(filename, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
         except FileNotFoundError:
@@ -130,19 +188,16 @@ def safe_load_state(filename: str = "yamaha-avr.json") -> dict[str, Any]:
 
 
 def safe_save_state(payload: dict[str, Any], filename: str = "yamaha-avr.json") -> None:
-    """Atomically write state using exclusive temporary creation, fsync, and rename."""
-    settings_dir = get_secure_settings_dir()
+    """Atomically write state using exclusive temporary creation, fsync, and descriptor-relative rename."""
     encoded = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
     if len(encoded) > MAX_STATE_SIZE:
         raise ValueError("State payload exceeds maximum size")
 
     tmp_name = f"{filename}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
-    tmp_path = settings_dir / tmp_name
-    target_path = settings_dir / filename
     dir_fd = -1
     tmp_fd = -1
     try:
-        dir_fd = os.open(str(settings_dir), os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        dir_fd = open_secure_settings_dir()
         tmp_fd = os.open(
             tmp_name,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -150,21 +205,29 @@ def safe_save_state(payload: dict[str, Any], filename: str = "yamaha-avr.json") 
             dir_fd=dir_fd,
         )
         st = os.fstat(tmp_fd)
-        if st.st_uid != os.getuid():
-            raise PermissionError("Directory owner mismatch")
+        if st.st_uid != os.getuid() or not stat.S_ISREG(st.st_mode):
+            raise PermissionError("Invalid temporary file")
         os.write(tmp_fd, encoded)
         os.fsync(tmp_fd)
         os.close(tmp_fd)
         tmp_fd = -1
-        os.replace(tmp_path, target_path)
+
+        # Atomically publish relative to verified directory descriptor
+        os.replace(tmp_name, filename, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        os.fsync(dir_fd)
     finally:
         if tmp_fd >= 0:
-            os.close(tmp_fd)
-        if dir_fd >= 0:
-            os.close(dir_fd)
-        if tmp_path.exists():
             try:
-                tmp_path.unlink()
+                os.close(tmp_fd)
+            except OSError:
+                pass
+        if dir_fd >= 0:
+            try:
+                os.unlink(tmp_name, dir_fd=dir_fd)
+            except OSError:
+                pass
+            try:
+                os.close(dir_fd)
             except OSError:
                 pass
 
@@ -175,7 +238,8 @@ def safe_parse_xml(xml_bytes: bytes) -> ET.Element:
         raise ValueError(f"XML payload too large ({len(xml_bytes)} bytes > {MAX_XML_SIZE})")
 
     parser = ET.XMLParser()
-    parser.entity = {}
+    if hasattr(parser, "entity") and hasattr(parser.entity, "clear"):
+        parser.entity.clear()
     root = ET.fromstring(xml_bytes, parser=parser)
 
     element_count = sum(1 for _ in root.iter())
@@ -254,6 +318,8 @@ class YamahaSession:
                 body = response.read(MAX_XML_SIZE + 1)
                 if len(body) > MAX_XML_SIZE:
                     raise ValueError("Receiver response exceeded maximum allowed size")
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"Receiver responded with HTTP {error.code}: {error.reason}") from error
         except urllib.error.URLError as error:
             self.connected = False
             raise RuntimeError(f"Could not reach {self.name} at {self.host}") from error
@@ -273,14 +339,14 @@ class YamahaSession:
         program = root.findtext(".//Sound_Program")
         val = root.findtext(".//Volume/Lvl/Val")
         exp = root.findtext(".//Volume/Lvl/Exp") or "1"
-        self.power = power or ""
-        self.mute = mute or ""
-        self.input_sel = input_sel or ""
-        self.program = program or ""
-        self.straight = root.findtext(".//Straight") or self.straight
-        self.enhancer = root.findtext(".//Enhancer") or self.enhancer
-        self.pure_direct = root.findtext(".//Pure_Direct/Mode") or self.pure_direct
-        self.cinema_3d = root.findtext(".//_3D_Cinema_DSP") or self.cinema_3d
+        self.power = sanitize_text(power, 16)
+        self.mute = sanitize_text(mute, 16)
+        self.input_sel = sanitize_text(input_sel, 32)
+        self.program = sanitize_text(program, 64)
+        self.straight = sanitize_text(root.findtext(".//Straight") or self.straight, 16)
+        self.enhancer = sanitize_text(root.findtext(".//Enhancer") or self.enhancer, 16)
+        self.pure_direct = sanitize_text(root.findtext(".//Pure_Direct/Mode") or self.pure_direct, 16)
+        self.cinema_3d = sanitize_text(root.findtext(".//_3D_Cinema_DSP") or self.cinema_3d, 16)
         lift = root.findtext(".//Dialogue_Lift")
         level = root.findtext(".//Dialogue_Lvl")
         if lift is not None and re.fullmatch(r"-?\d+", lift):
@@ -297,7 +363,7 @@ class YamahaSession:
                 sys_root = self.post("GET", "<System><Config>GetParam</Config></System>")
                 model = sys_root.findtext(".//Model_Name")
                 if model:
-                    self.model = model
+                    self.model = sanitize_text(model, 64)
             except Exception:
                 pass
 
@@ -365,18 +431,18 @@ class YamahaSession:
 
     def status_payload(self) -> dict[str, Any]:
         return {
-            "host": self.host,
-            "name": self.name,
-            "model": self.model,
-            "power": self.power,
-            "mute": self.mute,
-            "input": self.input_sel,
+            "host": sanitize_text(self.host, 128),
+            "name": sanitize_text(self.name, 64),
+            "model": sanitize_text(self.model, 64),
+            "power": sanitize_text(self.power, 16),
+            "mute": sanitize_text(self.mute, 16),
+            "input": sanitize_text(self.input_sel, 32),
             "volume": f"{self.volume_db:.1f}" if self.volume_db is not None else "--",
-            "program": self.program,
-            "straight": self.straight,
-            "enhancer": self.enhancer,
-            "pureDirect": self.pure_direct,
-            "cinema3d": self.cinema_3d,
+            "program": sanitize_text(self.program, 64),
+            "straight": sanitize_text(self.straight, 16),
+            "enhancer": sanitize_text(self.enhancer, 16),
+            "pureDirect": sanitize_text(self.pure_direct, 16),
+            "cinema3d": sanitize_text(self.cinema_3d, 16),
             "dialogueLift": self.dialogue_lift,
             "dialogueLvl": self.dialogue_lvl,
             "lrBalance": self.lr_balance,
@@ -510,7 +576,7 @@ class YamahaSession:
                 self.refresh()
             emit("ready", **self.status_payload())
         except Exception as error:
-            emit("error", action="connect", message=str(error), connected=False)
+            emit("error", action="connect", message=sanitize_text(str(error), 256), connected=False)
 
         while True:
             line = sys.stdin.readline(MAX_STDIN_LINE)
@@ -535,7 +601,7 @@ class YamahaSession:
                     **result,
                 )
             except Exception as error:
-                emit("error", action=raw[:24], message=str(error), connected=self.connected)
+                emit("error", action=sanitize_text(raw[:24], 24), message=sanitize_text(str(error), 256), connected=self.connected)
 
 
 def main() -> int:

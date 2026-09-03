@@ -2,8 +2,10 @@
 
 set -euo pipefail
 
+export PATH="/usr/bin:/bin"
+
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-SESSION_SCRIPT="${YAMAHA_AVR_SESSION:-$SCRIPT_DIR/yamaha-avr-session.py}"
+SESSION_SCRIPT="$SCRIPT_DIR/yamaha-avr-session.py"
 DEVICE_HOST="${YAMAHA_AVR_HOST:-}"
 DEVICE_NAME="${YAMAHA_AVR_NAME:-Yamaha AVR}"
 
@@ -46,8 +48,21 @@ done
   exit 2
 }
 
+PYTHON_BIN=""
+for candidate in /usr/bin/python3 /bin/python3; do
+  if [[ -x "$candidate" ]]; then
+    PYTHON_BIN="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "yamaha-avr: python3 not found in /usr/bin or /bin" >&2
+  exit 1
+fi
+
 if [[ $1 == session ]]; then
-  exec python3 "$SESSION_SCRIPT" --host "$DEVICE_HOST" --name "$DEVICE_NAME"
+  exec "$PYTHON_BIN" "$SESSION_SCRIPT" --host "$DEVICE_HOST" --name "$DEVICE_NAME"
 fi
 
 echo "yamaha-avr: one-shot actions run through the bar session" >&2
