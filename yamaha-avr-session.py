@@ -29,6 +29,57 @@ MAX_XML_SIZE = 65536
 MAX_STDIN_LINE = 65536
 MAX_ELEMENTS = 500
 
+# YNCA Input_Sel names for an RX-V677-class receiver. Aliases are the
+# action suffix after "input-", uppercased.
+_INPUT_ALIASES = {
+    "APPLETV": "AV4",
+    "SHIELD": "HDMI1",
+    "TV": "AUDIO1",
+    "AIRPLAY": "AirPlay",
+    "SPOTIFY": "Spotify",
+    "VAUX": "V-AUX",
+    "NET": "NET RADIO",
+    "NETRADIO": "NET RADIO",
+    "NET_RADIO": "NET RADIO",
+    "BLUETOOTH": "Bluetooth",
+}
+_ALLOWED_INPUTS = frozenset(
+    {
+        "HDMI1",
+        "HDMI2",
+        "HDMI3",
+        "HDMI4",
+        "HDMI5",
+        "AV1",
+        "AV2",
+        "AV3",
+        "AV4",
+        "AV5",
+        "AV6",
+        "AUDIO1",
+        "AUDIO2",
+        "V-AUX",
+        "TUNER",
+        "USB",
+        "SERVER",
+        "NET RADIO",
+        "AirPlay",
+        "Spotify",
+        "Bluetooth",
+    }
+)
+
+
+def input_selection(suffix: str) -> str | None:
+    """Map a remote action suffix to a YNCA Input_Sel, or None if unknown."""
+    key = suffix.strip().upper()
+    if not key or any(ch in key for ch in "<>&\"'/\\"):
+        return None
+    target = _INPUT_ALIASES.get(key, key)
+    if target not in _ALLOWED_INPUTS:
+        return None
+    return target
+
 LR_PAIRS = (
     ("Front_L", "Front_R"),
     ("Sur_L", "Sur_R"),
@@ -516,16 +567,13 @@ class YamahaSession:
                 self.post("PUT", f"<Main_Zone><Volume><Lvl><Val>{exp_val}</Val><Exp>1</Exp><Unit>dB</Unit></Lvl></Volume></Main_Zone>")
                 self.volume_db = val
         elif action.startswith("input-"):
-            inp = action[6:].upper()
-            mapping = {
-                "APPLETV": "AV4",
-                "SHIELD": "HDMI1",
-                "TV": "AUDIO1",
-                "AIRPLAY": "AirPlay",
-                "SPOTIFY": "Spotify",
-            }
-            target_input = mapping.get(inp, inp)
-            self.post("PUT", f"<Main_Zone><Input><Input_Sel>{target_input}</Input_Sel></Input></Main_Zone>")
+            target_input = input_selection(action[6:])
+            if target_input is None:
+                raise ValueError(f"Unknown input: {action[:32]}")
+            self.post(
+                "PUT",
+                f"<Main_Zone><Input><Input_Sel>{target_input}</Input_Sel></Input></Main_Zone>",
+            )
         elif action.startswith("scene-"):
             num = action[6:]
             self.post("PUT", f"<Main_Zone><Scene><Scene_Sel>Scene {num}</Scene_Sel></Scene></Main_Zone>")
