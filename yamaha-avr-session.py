@@ -553,8 +553,9 @@ class YamahaSession:
             self.post("PUT", "<Main_Zone><Power_Control><Power>Standby</Power></Power_Control></Main_Zone>")
         elif action == "sleep" or action.startswith("sleep-"):
             suffix = action[5:].lstrip("-") or "off"
-            inner = self.apply_sleep(suffix)
+            inner = sleep_control_xml(suffix)
             self.post("PUT", inner)
+            self.sleep = normalize_sleep(suffix)
         elif action in {"mute", "mute-toggle"}:
             target = "Off" if self.mute == "On" else "On"
             self.post("PUT", f"<Main_Zone><Volume><Mute>{target}</Mute></Volume></Main_Zone>")
@@ -757,8 +758,10 @@ class YamahaSession:
             emit("result", action=operation, result=str(val), **self.status_payload())
             return
         if operation == "set-sleep":
-            inner = self.apply_sleep(request.get("value", "Off"))
+            value = request.get("value", "Off")
+            inner = sleep_control_xml(value)
             self.post("PUT", inner)
+            self.sleep = normalize_sleep(value)
             self.refresh()
             emit("result", action=operation, result=self.sleep, **self.status_payload())
             return
