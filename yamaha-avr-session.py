@@ -56,6 +56,49 @@ def ynca_xml(cmd: str, inner: str) -> str:
     return f'<?xml version="1.0" encoding="utf-8"?><YAMAHA_AV cmd="{cmd}">{inner}</YAMAHA_AV>'
 
 
+SLEEP_VALUES = ("Off", "30 min", "60 min", "90 min", "120 min")
+
+_SLEEP_ALIASES = {
+    "off": "Off",
+    "0": "Off",
+    "30": "30 min",
+    "30min": "30 min",
+    "30 min": "30 min",
+    "60": "60 min",
+    "60min": "60 min",
+    "60 min": "60 min",
+    "90": "90 min",
+    "90min": "90 min",
+    "90 min": "90 min",
+    "120": "120 min",
+    "120min": "120 min",
+    "120 min": "120 min",
+}
+
+
+def normalize_sleep(value: Any) -> str:
+    """Map a user/action sleep value to a YNCA Sleep label. Pure, no I/O."""
+    raw = sanitize_text(value, 16)
+    if raw in SLEEP_VALUES:
+        return raw
+    key = re.sub(r"\s+", " ", raw.lower().replace("_", " ").replace("-", " ")).strip()
+    if key.startswith("sleep "):
+        key = key[6:].strip()
+    key = key.replace(" minutes", " min").replace(" minute", " min")
+    if key in _SLEEP_ALIASES:
+        return _SLEEP_ALIASES[key]
+    compact = key.replace(" ", "")
+    if compact in _SLEEP_ALIASES:
+        return _SLEEP_ALIASES[compact]
+    raise ValueError(f"Invalid sleep value: {raw[:16] or 'empty'}")
+
+
+def sleep_control_xml(value: Any) -> str:
+    """Build Main_Zone Power_Control Sleep inner XML. Pure, no I/O."""
+    label = normalize_sleep(value)
+    return f"<Main_Zone><Power_Control><Sleep>{label}</Sleep></Power_Control></Main_Zone>"
+
+
 def resolve_and_validate_lan_ip(host: str) -> str:
     """Resolve host and strictly enforce private RFC 1918 IPv4 LAN boundary."""
     clean_host = host.strip().split(":")[0]
@@ -272,6 +315,7 @@ class YamahaSession:
         self.extra_bass = "Off"
         self.ypao_volume = "Off"
         self.adaptive_drc = "Off"
+        self.sleep = "Off"
         self.lr_balance = 0
         self.speaker_levels: dict[str, int] = {}
         self.seat_baseline: dict[str, int] = {}
@@ -347,6 +391,12 @@ class YamahaSession:
         exp = root.findtext(".//Volume/Lvl/Exp") or "1"
         self.power = sanitize_text(power, 16)
         self.mute = sanitize_text(mute, 16)
+        sleep = root.findtext(".//Power_Control/Sleep")
+        if sleep:
+            try:
+                self.sleep = normalize_sleep(sleep)
+            except ValueError:
+                self.sleep = sanitize_text(sleep, 16)
         self.input_sel = sanitize_text(input_sel, 32)
         self.program = sanitize_text(program, 64)
         self.straight = sanitize_text(root.findtext(".//Straight") or self.straight, 16)
@@ -480,8 +530,15 @@ class YamahaSession:
             "extraBass": self.extra_bass,
             "ypaoVolume": self.ypao_volume,
             "adaptiveDrc": self.adaptive_drc,
+            "sleep": sanitize_text(self.sleep, 16),
             "connected": self.connected,
         }
+
+    def apply_sleep(self, value: Any) -> str:
+        """Normalize a sleep value and return PUT inner XML. Does not post."""
+        inner = sleep_control_xml(value)
+        self.sleep = normalize_sleep(value)
+        return inner
 
     def dispatch(self, action: str) -> dict[str, Any]:
         if action == "status":
@@ -494,6 +551,10 @@ class YamahaSession:
             self.post("PUT", "<Main_Zone><Power_Control><Power>On</Power></Power_Control></Main_Zone>")
         elif action == "power-off":
             self.post("PUT", "<Main_Zone><Power_Control><Power>Standby</Power></Power_Control></Main_Zone>")
+        elif action == "sleep" or action.startswith("sleep-"):
+            suffix = action[5:].lstrip("-") or "off"
+            inner = self.apply_sleep(suffix)
+            self.post("PUT", inner)
         elif action in {"mute", "mute-toggle"}:
             target = "Off" if self.mute == "On" else "On"
             self.post("PUT", f"<Main_Zone><Volume><Mute>{target}</Mute></Volume></Main_Zone>")
@@ -694,6 +755,12 @@ class YamahaSession:
             self.treble = val
             self.refresh()
             emit("result", action=operation, result=str(val), **self.status_payload())
+            return
+        if operation == "set-sleep":
+            inner = self.apply_sleep(request.get("value", "Off"))
+            self.post("PUT", inner)
+            self.refresh()
+            emit("result", action=operation, result=self.sleep, **self.status_payload())
             return
         if operation == "set-subtrim":
             val = max(-60, min(60, int(request.get("value", 0))))

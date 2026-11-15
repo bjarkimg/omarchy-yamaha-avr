@@ -17,6 +17,7 @@ Usage: yamaha-avr [--host HOST] [--name NAME] ACTION
   input-hdmi1 .. input-hdmi5
   scene-1 .. scene-4
   straight pure-direct program-7ch
+  sleep-off sleep-30 sleep-60 sleep-90 sleep-120
   session
 
 YNCA HTTP remote for Yamaha RX-V / RX-A receivers (tested on RX-V677).
