@@ -779,11 +779,33 @@ BarWidget {
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
-            RemoteKey { action: "input-hdmi1"; text: "HDMI1"; keyWidth: 56 }
-            RemoteKey { action: "input-hdmi2"; text: "HDMI2"; keyWidth: 56 }
-            RemoteKey { action: "input-hdmi3"; text: "HDMI3"; keyWidth: 56 }
-            RemoteKey { action: "input-hdmi4"; text: "HDMI4"; keyWidth: 56 }
-            RemoteKey { action: "input-hdmi5"; text: "HDMI5"; keyWidth: 56 }
+            RemoteKey { action: "input-hdmi1"; text: "HDMI1"; keyWidth: 56; on: root.inputSel === "HDMI1" }
+            RemoteKey { action: "input-hdmi2"; text: "HDMI2"; keyWidth: 56; on: root.inputSel === "HDMI2" }
+            RemoteKey { action: "input-hdmi3"; text: "HDMI3"; keyWidth: 56; on: root.inputSel === "HDMI3" }
+            RemoteKey { action: "input-hdmi4"; text: "HDMI4"; keyWidth: 56; on: root.inputSel === "HDMI4" }
+            RemoteKey { action: "input-hdmi5"; text: "HDMI5"; keyWidth: 56; on: root.inputSel === "HDMI5" }
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(7)
+            RemoteKey { action: "input-av1"; text: "AV1"; keyWidth: 48; fontSize: Style.font.caption; on: root.inputSel === "AV1" }
+            RemoteKey { action: "input-av2"; text: "AV2"; keyWidth: 48; fontSize: Style.font.caption; on: root.inputSel === "AV2" }
+            RemoteKey { action: "input-av3"; text: "AV3"; keyWidth: 48; fontSize: Style.font.caption; on: root.inputSel === "AV3" }
+            RemoteKey { action: "input-av4"; text: "AV4"; keyWidth: 48; fontSize: Style.font.caption; on: root.inputSel === "AV4" }
+            RemoteKey { action: "input-av5"; text: "AV5"; keyWidth: 48; fontSize: Style.font.caption; on: root.inputSel === "AV5" }
+            RemoteKey { action: "input-av6"; text: "AV6"; keyWidth: 48; fontSize: Style.font.caption; on: root.inputSel === "AV6" }
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(7)
+            RemoteKey { action: "input-audio1"; text: "A1"; keyWidth: 48; fontSize: Style.font.caption; tooltipText: "AUDIO1"; on: root.inputSel === "AUDIO1" }
+            RemoteKey { action: "input-audio2"; text: "A2"; keyWidth: 48; fontSize: Style.font.caption; tooltipText: "AUDIO2"; on: root.inputSel === "AUDIO2" }
+            RemoteKey { action: "input-vaux"; text: "VAUX"; keyWidth: 52; fontSize: Style.font.caption; tooltipText: "V-AUX"; on: root.inputSel === "V-AUX" }
+            RemoteKey { action: "input-tuner"; text: "TUN"; keyWidth: 48; fontSize: Style.font.caption; tooltipText: "TUNER"; on: root.inputSel === "TUNER" }
+            RemoteKey { action: "input-usb"; text: "USB"; keyWidth: 48; fontSize: Style.font.caption; on: root.inputSel === "USB" }
+            RemoteKey { action: "input-net"; text: "NET"; keyWidth: 48; fontSize: Style.font.caption; tooltipText: "NET RADIO"; on: root.inputSel === "NET RADIO" }
           }
 
           Row {

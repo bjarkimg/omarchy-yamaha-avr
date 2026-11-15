@@ -43,7 +43,7 @@ YNCA; this plugin only uses that older API.
 - Bar chip labelled **AV**
 - Power, mute, and volume (absolute dB on RX-V677; `Val=Up` is rejected)
 - Quick volume presets row: **-60 dB** (Night), **-50 dB** (Quiet), **-45 dB** (TV), **-40 dB** (Normal/Movies)
-- HDMI 1–5 and scenes 1–4
+- HDMI 1–5, AV 1–6, AUDIO 1–2, V-AUX, TUNER, USB, NET RADIO, and scenes 1–4
 - Straight, 7ch Stereo, and Pure Direct
 - Draggable 7.1 seat map:
   - **Left / right** writes per-speaker level trims (`Speaker_Preout` Pattern 1).
@@ -85,6 +85,12 @@ name is read from the box after the first successful GET.
 | M | Mute |
 | - / + | Volume |
 | 1–5 | HDMI 1–5 |
+| AV1–AV6 | AV 1–6 |
+| A1 / A2 | AUDIO 1 / AUDIO 2 |
+| VAUX | V-AUX |
+| TUN | Tuner |
+| USB | USB |
+| NET | NET RADIO |
 | S | Straight |
 | 7 | 7ch Stereo |
 | U | Pure Direct |
