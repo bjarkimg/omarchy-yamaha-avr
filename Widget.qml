@@ -42,6 +42,7 @@ BarWidget {
   property bool enhancerOn: false
   property bool cinema3dOn: false
   property int dialogueLvl: 0
+  property string sleep: "Off"
 
   readonly property string deviceName: String(setting("deviceName", "Yamaha AVR"))
   readonly property string host: String(setting("host", ""))
@@ -82,6 +83,8 @@ BarWidget {
     cinema3dOn = String(message.cinema3d || "").toLowerCase() === "auto" || String(message.cinema3d || "").toLowerCase() === "on"
     if (message.dialogueLvl !== undefined && message.dialogueLvl !== null && message.dialogueLvl !== "")
       dialogueLvl = Math.max(0, Math.min(3, Number(message.dialogueLvl)))
+    if (message.sleep !== undefined && message.sleep !== null && message.sleep !== "")
+      sleep = String(message.sleep)
     if (!seatBusy && message.dialogueLift !== undefined && message.dialogueLift !== null && message.dialogueLift !== "")
       dialogueLift = Math.max(0, Math.min(5, Number(message.dialogueLift)))
     if (!seatBusy && message.lrBalance !== undefined && message.lrBalance !== null && message.lrBalance !== "")
@@ -505,6 +508,7 @@ BarWidget {
             text: (root.muted ? "MUTE  ·  " : "") + (root.volumeLabel || "—")
               + (root.inputSel ? "  ·  " + root.inputSel : "")
               + (root.program ? "  ·  " + root.program : "")
+              + (root.sleep && root.sleep !== "Off" ? "  ·  SLEEP " + root.sleep : "")
             textFormat: Text.PlainText
             color: root.foreground
             font.family: root.fontFamily
@@ -779,6 +783,56 @@ BarWidget {
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(7)
+            RemoteKey {
+              action: "sleep-off"
+              keyWidth: 52
+              keyHeight: 32
+              fontSize: Style.font.caption
+              text: "OFF"
+              tooltipText: "Sleep timer off"
+              on: root.sleep === "Off" || root.sleep === ""
+            }
+            RemoteKey {
+              action: "sleep-30"
+              keyWidth: 52
+              keyHeight: 32
+              fontSize: Style.font.caption
+              text: "30"
+              tooltipText: "Sleep in 30 minutes"
+              on: root.sleep === "30 min"
+            }
+            RemoteKey {
+              action: "sleep-60"
+              keyWidth: 52
+              keyHeight: 32
+              fontSize: Style.font.caption
+              text: "60"
+              tooltipText: "Sleep in 60 minutes"
+              on: root.sleep === "60 min"
+            }
+            RemoteKey {
+              action: "sleep-90"
+              keyWidth: 52
+              keyHeight: 32
+              fontSize: Style.font.caption
+              text: "90"
+              tooltipText: "Sleep in 90 minutes"
+              on: root.sleep === "90 min"
+            }
+            RemoteKey {
+              action: "sleep-120"
+              keyWidth: 52
+              keyHeight: 32
+              fontSize: Style.font.caption
+              text: "120"
+              tooltipText: "Sleep in 120 minutes"
+              on: root.sleep === "120 min"
+            }
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(7)
             RemoteKey { action: "input-hdmi1"; text: "HDMI1"; keyWidth: 56 }
             RemoteKey { action: "input-hdmi2"; text: "HDMI2"; keyWidth: 56 }
             RemoteKey { action: "input-hdmi3"; text: "HDMI3"; keyWidth: 56 }
@@ -987,6 +1041,48 @@ BarWidget {
                 }
               }
             }
+          }
+
+          PanelSeparator { width: parent.width; foreground: root.foreground }
+
+          Item {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: parent.width
+            height: sleepHeader.implicitHeight
+
+            Text {
+              id: sleepHeader
+              anchors.centerIn: parent
+              text: "SLEEP TIMER"
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            MouseArea {
+              id: sleepHover
+              anchors.fill: parent
+              hoverEnabled: true
+            }
+
+            PanelToolTip {
+              visible: sleepHover.containsMouse
+              text: "Turns the main zone off after 30, 60, 90, or 120 minutes"
+              panelForeground: root.foreground
+              fontFamily: root.fontFamily
+            }
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(7)
+            PillButton { text: "OFF"; tooltipText: "Sleep timer off"; on: root.sleep === "Off" || root.sleep === ""; pillWidth: 52; onClicked: root.sendAction("sleep-off") }
+            PillButton { text: "30"; tooltipText: "Sleep in 30 minutes"; on: root.sleep === "30 min"; pillWidth: 52; onClicked: root.sendAction("sleep-30") }
+            PillButton { text: "60"; tooltipText: "Sleep in 60 minutes"; on: root.sleep === "60 min"; pillWidth: 52; onClicked: root.sendAction("sleep-60") }
+            PillButton { text: "90"; tooltipText: "Sleep in 90 minutes"; on: root.sleep === "90 min"; pillWidth: 52; onClicked: root.sendAction("sleep-90") }
+            PillButton { text: "120"; tooltipText: "Sleep in 120 minutes"; on: root.sleep === "120 min"; pillWidth: 52; onClicked: root.sendAction("sleep-120") }
           }
 
           PanelSeparator { width: parent.width; foreground: root.foreground }

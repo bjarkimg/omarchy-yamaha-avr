@@ -36,7 +36,7 @@ These features are documented for future reference and expansion.
 
 ---
 
-## 2. Sleep Timer
+## 2. Sleep Timer (Implemented in v1.0.5)
 - Available for both Main Zone and Zone 2.
 - Options: `Off`, `30 min`, `60 min`, `90 min`, `120 min`.
 - XML:
